@@ -627,8 +627,8 @@ function Sidebar({ mod, setMod, auth, onLogout, alertCount }) {
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ width:40, height:40, background:'linear-gradient(135deg,#3B6FD4,#10B981)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:800, color:'white', flexShrink:0 }}>₹</div>
           <div className="sidebar-logo-text">
-            <div style={{ color:'white', fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, lineHeight:1.1 }}>NW Portfolio</div>
-            <div style={{ color:'rgba(255,255,255,.4)', fontSize:9, letterSpacing:'1.5px', textTransform:'uppercase' }}>Enterprise</div>
+            <div style={{ color:'white', fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, lineHeight:1.1 }}>Worth IQ</div>
+            <div style={{ color:'rgba(255,255,255,.4)', fontSize:9, letterSpacing:'1.5px', textTransform:'uppercase' }}>GOLD Plan</div>
           </div>
         </div>
       </div>
@@ -664,7 +664,7 @@ function Sidebar({ mod, setMod, auth, onLogout, alertCount }) {
         </div>
         <div className="sidebar-platform-box" style={{ background:'rgba(255,255,255,.05)', borderRadius:8, padding:'8px 12px', marginBottom:8 }}>
           <div style={{ color:'rgba(255,255,255,.5)', fontSize:9, letterSpacing:'1px', textTransform:'uppercase', marginBottom:2 }}>Platform</div>
-          <div style={{ color:'rgba(255,255,255,.8)', fontSize:11, fontWeight:500 }}>Your Wealth. Our Priority.</div>
+          <div style={{ color:'rgba(255,255,255,.8)', fontSize:11, fontWeight:500 }}>Intelligence for Your Net Worth.</div>
         </div>
         <button onClick={onLogout} style={{ width:'100%', padding:'8px', background:'rgba(239,68,68,.15)', color:'#FCA5A5', border:'1px solid rgba(239,68,68,.2)', borderRadius:8, fontSize:12, cursor:'pointer', fontWeight:500 }}>
           Sign Out
@@ -725,7 +725,7 @@ function Header({ auth, dateLabel, totals, alerts }) {
       {/* Left: title */}
       <div>
         <h1 style={{ fontFamily:"'Syne',sans-serif", fontSize:18, fontWeight:700, color:'#0B1E4F', letterSpacing:'-0.3px' }}>Wealth Overview</h1>
-        <p style={{ fontSize:11, color:'#9CA3AF', margin:0 }} className="header-greeting">Your complete financial snapshot</p>
+        <p style={{ fontSize:11, color:'#9CA3AF', margin:0 }} className="header-greeting">Your complete financial Intelligence</p>
       </div>
 
       <div className="header-right">
