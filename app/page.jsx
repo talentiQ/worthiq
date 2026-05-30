@@ -19,9 +19,9 @@ const toDate  = v => (!v ? null : v.length === 7 ? `${v}-01` : v)
 
 const CAT_ICONS = {
   home_loan:'🏠', personal:'👤', car_loan:'🚗', overdraft:'💳', credit_card:'💳', business:'🏢', other:'📋',
-  equity:'📈', mf:'📊', gold:'🥇', ppf:'🏦', fd:'📑', bonds:'💰', nps:'🏛️',
+  equity:'📈', mf:'📊', gold:'🥇', ppf:'🏦', fd:'📑', bonds:'💰', nps:'🏛️',insurance:'🛡️', ulip:'💼', 
   residential:'🏡', commercial:'🏢', land:'🌱', industrial:'🏗️',
-  savings:'🏦', current:'💼', hand:'💵', wallet:'📱',
+  savings:'🏦', current:'💼', hand:'💵',cashloan:'💵', wallet:'📱',
   investment:'📈', liability:'🏛️', cash:'💵', property:'🏠',
 }
 
@@ -484,7 +484,18 @@ export default function KBWealthEnterprise() {
       payload = { ...payload, cat:item.cat, name:item.name, bank:item.bank||null,
         outstanding:item.outstanding||0, emi:item.emi||0, rate:item.rate||0, end_date:toDate(item.end_date)||null }
     } else if (module === 'liquidity') {
-      payload = { ...payload, cat:item.cat, name:item.name, value:item.value||0, invested:item.invested||0 }
+  const isInsurance = item.cat === 'insurance' || item.cat === 'ulip'
+  payload = {
+    ...payload,
+    cat:      item.cat,
+    name:     item.name,
+    value:    item.value    || 0,
+    invested: item.invested || 0,
+    // Insurance-specific: maturity value stored in units, insurer in bank, notes free text
+    units:    isInsurance ? (Number(item.units) || null) : null,
+    notes:    isInsurance ? (item.notes || null) : null,
+    bank:     isInsurance ? (item.bank  || null) : null,
+  }
     } else if (module === 'property') {
       payload = { ...payload, cat:item.cat, name:item.name, loc:item.loc||null,
         purchase:item.purchase||0, current:item.current||0, year:item.year||null }
@@ -1032,7 +1043,47 @@ function LiquidityPage({ data, totals, onAdd, onEdit, onDelete, isViewer, setMod
       )}
     </>}
     columns={[
-      { key:'name',     label:'Asset',         w:'1.5fr', bold:true, render:item=><><span>{CAT_ICONS[item.cat]||'💰'} {item.name}</span>{item.cat==='mf'&&<span style={{marginLeft:6,fontSize:9,background:'#F5F3FF',color:'#7C3AED',padding:'2px 6px',borderRadius:4,fontWeight:600}}>MF →</span>}</> },
+      // AFTER — adds insurance maturity value + insurer sub-line:
+{
+  key:  'name',
+  label:'Asset',
+  w:    '1.5fr',
+  bold: true,
+  render: item => {
+    const isInsurance = item.cat === 'insurance' || item.cat === 'ulip'
+    return (
+      <>
+        <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+          <span>{CAT_ICONS[item.cat]||'💰'} {item.name}</span>
+          {item.cat === 'mf' && (
+            <span style={{ fontSize:9, background:'#F5F3FF', color:'#7C3AED',
+              padding:'2px 6px', borderRadius:4, fontWeight:600 }}>MF →</span>
+          )}
+          {isInsurance && (
+            <span style={{ fontSize:9, background:'#F5F3FF', color:'#5B21B6',
+              padding:'2px 6px', borderRadius:4, fontWeight:600 }}>
+              {item.cat === 'ulip' ? 'ULIP' : 'INSURANCE'}
+            </span>
+          )}
+        </div>
+        {/* Sub-line: insurer + maturity value for insurance */}
+        {isInsurance && (item.bank || Number(item.units) > 0) && (
+          <div style={{ fontSize:10, color:'#7C3AED', marginTop:3, lineHeight:1.5 }}>
+            {item.bank && <span>{item.bank}</span>}
+            {item.bank && Number(item.units) > 0 && <span> · </span>}
+            {Number(item.units) > 0 && (
+              <span>Maturity: <strong>{fmtFull(Number(item.units))}</strong></span>
+            )}
+          </div>
+        )}
+        {/* Notes line */}
+        {isInsurance && item.notes && (
+          <div style={{ fontSize:10, color:'#9CA3AF', marginTop:2 }}>{item.notes}</div>
+        )}
+      </>
+    )
+  }
+},
       { key:'value',    label:'Current Value', w:'1fr',   mono:true, color:C.liquidity.main, render:item=>fmtFull(Number(item.value)) },
       { key:'invested', label:'Invested',      w:'1fr',   mono:true, render:item=>fmtFull(Number(item.invested)) },
       { key:'gain',     label:'Gain/Loss',     w:'1fr',   render:item=>{
@@ -1409,21 +1460,27 @@ function ItemModal({ modal, onClose, onSave }) {
   const isCash = modal.module === 'cash'
   const isGoal = modal.module === 'goals'
 
-  const [form, setForm] = useState({
-    cat:'', name:'', bank:'', outstanding:0, emi:0, rate:0,
-    end_date:'', value:0, invested:0,
-    purchase:0, current:0, loc:'', year:new Date().getFullYear(),
-    balance:0, acct:'',
-    target:0, target_date:'', color:'#3B6FD4',
-    ...modal.item,
-  })
+  // AFTER (add units + notes):
+const [form, setForm] = useState({
+  cat:'', name:'', bank:'', outstanding:0, emi:0, rate:0,
+  end_date:'', value:0, invested:0,
+  units:0, notes:'',                                             // ← ADD
+  purchase:0, current:0, loc:'', year:new Date().getFullYear(),
+  balance:0, acct:'',
+  target:0, target_date:'', color:'#3B6FD4',
+  ...modal.item,
+})
   const f = (k, v) => setForm(x => ({ ...x, [k]: v }))
 
   const catOptions = {
     liabilities: [['home_loan','🏠 Home Loan'],['personal','👤 Personal Loan'],['car_loan','🚗 Car Loan'],['overdraft','💳 OD/Overdraft'],['credit_card','💳 Credit Card'],['business','🏢 Business Loan'],['other','📋 Other']],
-    liquidity:   [['equity','📈 Equity/Stocks'],['mf','📊 Mutual Funds'],['gold','🥇 Gold/SGB'],['ppf','🏦 PPF/EPF'],['fd','📑 FD'],['bonds','💰 Bonds'],['nps','🏛️ NPS']],
+      liquidity: [
+    ['equity','📈 Equity/Stocks'],['mf','📊 Mutual Funds'],['gold','🥇 Gold/SGB'],['ppf','🏦 PPF/EPF'],['fd','📑 FD'],['bonds','💰 Bonds'],['nps','🏛️ NPS'],
+    ['insurance','🛡️ Traditional Plan (Endowment/Money Back)'],  // ← ADD
+    ['ulip','💼 ULIP'],                                           // ← ADD
+  ],
     property:    [['residential','🏡 Residential'],['commercial','🏢 Commercial'],['land','🌱 Land/Plot'],['industrial','🏗️ Industrial']],
-    cash:        [['savings','🏦 Savings'],['current','💼 Current'],['hand','💵 Cash in Hand'],['wallet','📱 Digital Wallet']],
+    cash:        [['savings','🏦 Savings'],['current','💼 Current'],['hand','💵 Cash in Hand'],['cashloan','💵 Cash Loan'],['wallet','📱 Digital Wallet']],
     goals:       [['investment','📈 Investment'],['liability','🏛️ Liability'],['property','🏠 Property'],['cash','💵 Cash'],['other','📋 Other']],
   }
   const accentMap = { liabilities:C.liability.main, liquidity:C.liquidity.main, property:C.property.main, cash:C.cash.main, goals:C.nw.main }
@@ -1462,10 +1519,97 @@ function ItemModal({ modal, onClose, onSave }) {
               <div><label style={LBL}>Interest Rate (%)</label><input type="number" step=".1" min="0" value={form.rate} onChange={e=>f('rate',+e.target.value)} style={INP} /></div>
               <div><label style={LBL}>End Date</label><input type="month" value={form.end_date?.slice(0,7)||''} onChange={e=>f('end_date',e.target.value)} style={INP} /></div>
             </>}
-            {isLiq && <>
-              <div><label style={LBL}>Current Value (₹)</label><input type="number" min="0" value={form.value} onChange={e=>f('value',+e.target.value)} style={INP} /></div>
-              <div><label style={LBL}>Invested Amount (₹)</label><input type="number" min="0" value={form.invested} onChange={e=>f('invested',+e.target.value)} style={INP} /></div>
-            </>}
+            // AFTER — split into two conditional blocks:
+{isLiq && form.cat !== 'insurance' && form.cat !== 'ulip' && <>
+  <div>
+    <label style={LBL}>Current Value (₹)</label>
+    <input type="number" min="0" value={form.value}
+      onChange={e=>f('value',+e.target.value)} style={INP} />
+  </div>
+  <div>
+    <label style={LBL}>Invested Amount (₹)</label>
+    <input type="number" min="0" value={form.invested}
+      onChange={e=>f('invested',+e.target.value)} style={INP} />
+  </div>
+</>}
+ 
+{/* ── INSURANCE FIELDS — shown for Traditional Plan & ULIP ── */}
+{isLiq && (form.cat === 'insurance' || form.cat === 'ulip') && <>
+  {/* Row 1 */}
+  <div>
+    <label style={LBL}>Surrender / Cash Value (₹) *</label>
+    <input type="number" min="0" value={form.value}
+      onChange={e=>f('value',+e.target.value)} style={INP} />
+    <div style={{ fontSize:10, color:'#9CA3AF', marginTop:4, lineHeight:1.5 }}>
+      Current value if surrendered today — used for Net Worth
+    </div>
+  </div>
+  <div>
+    <label style={LBL}>Total Premiums Paid (₹)</label>
+    <input type="number" min="0" value={form.invested}
+      onChange={e=>f('invested',+e.target.value)} style={INP} />
+  </div>
+ 
+  {/* Row 2 */}
+  <div>
+    <label style={LBL}>Guaranteed Maturity Value (₹)</label>
+    <input type="number" min="0" value={form.units||0}
+      onChange={e=>f('units',+e.target.value)} style={INP} />
+    <div style={{ fontSize:10, color:'#9CA3AF', marginTop:4, lineHeight:1.5 }}>
+      Projected / guaranteed corpus at policy maturity
+    </div>
+  </div>
+ 
+  {/* Row 3 — Insurer banner */}
+  <div>
+    <label style={LBL}>Insurer</label>
+    <input value={form.bank||''} onChange={e=>f('bank',e.target.value)}
+      placeholder="e.g. HDFC Life, LIC, SBI Life…" style={INP} />
+  </div>
+ 
+  {/* Row 4 — Notes (full width) */}
+  <div style={{ gridColumn:'1/-1' }}>
+    <label style={LBL}>Notes (Annual Premium, Policy Term, Maturity Date)</label>
+    <input value={form.notes||''} onChange={e=>f('notes',e.target.value)}
+      placeholder="e.g. ₹50,000/yr · 20-year term · Matures Jan 2040"
+      style={INP} />
+  </div>
+ 
+  {/* Live preview card */}
+  {(form.value > 0 || form.units > 0) && (
+    <div style={{ gridColumn:'1/-1', background:'#F5F3FF', border:'1px solid #DDD6FE',
+      borderRadius:10, padding:'12px 14px', display:'flex', gap:24, flexWrap:'wrap' }}>
+      <div>
+        <div style={{ fontSize:10, color:'#7C3AED', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:2 }}>
+          Surrender Value
+        </div>
+        <div style={{ fontSize:16, fontWeight:700, color:'#5B21B6', fontFamily:"'Syne',sans-serif" }}>
+          {form.value > 0 ? fmtFull(form.value) : '—'}
+        </div>
+      </div>
+      {form.units > 0 && (
+        <div>
+          <div style={{ fontSize:10, color:'#7C3AED', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:2 }}>
+            Maturity Value
+          </div>
+          <div style={{ fontSize:16, fontWeight:700, color:'#5B21B6', fontFamily:"'Syne',sans-serif" }}>
+            {fmtFull(form.units)}
+          </div>
+        </div>
+      )}
+      {form.invested > 0 && (
+        <div>
+          <div style={{ fontSize:10, color:'#7C3AED', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:2 }}>
+            Premiums Paid
+          </div>
+          <div style={{ fontSize:16, fontWeight:700, color:'#5B21B6', fontFamily:"'Syne',sans-serif" }}>
+            {fmtFull(form.invested)}
+          </div>
+        </div>
+      )}
+    </div>
+  )}
+</>}
             {isProp && <>
               <div style={{ gridColumn:'1/-1' }}><label style={LBL}>Location</label><input value={form.loc||''} onChange={e=>f('loc',e.target.value)} style={INP} /></div>
               <div><label style={LBL}>Purchase Value (₹)</label><input type="number" min="0" value={form.purchase} onChange={e=>f('purchase',+e.target.value)} style={INP} /></div>
