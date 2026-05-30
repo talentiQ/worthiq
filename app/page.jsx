@@ -21,7 +21,7 @@ const CAT_ICONS = {
   home_loan:'🏠', personal:'👤', car_loan:'🚗', overdraft:'💳', credit_card:'💳', business:'🏢', other:'📋',
   equity:'📈', mf:'📊', gold:'🥇', ppf:'🏦', fd:'📑', bonds:'💰', nps:'🏛️',
   residential:'🏡', commercial:'🏢', land:'🌱', industrial:'🏗️',
-  savings:'🏦', current:'💼', hand:'💵', cashloan:'💰', wallet:'📱',
+  savings:'🏦', current:'💼', hand:'💵', wallet:'📱',
   investment:'📈', liability:'🏛️', cash:'💵', property:'🏠',
 }
 
@@ -49,19 +49,71 @@ const TABLE = {
 function AuthScreen() {
   const [email, setEmail]         = useState('')
   const [pass, setPass]           = useState('')
+  const [confirmPass, setConfirm] = useState('')
+  const [fullName, setFullName]   = useState('')
   const [err, setErr]             = useState('')
+  const [info, setInfo]           = useState('')
   const [loading, setLoading]     = useState(false)
   const [showPass, setShowPass]   = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  // mode: 'login' | 'signup' | 'reset'
   const [mode, setMode]           = useState('login')
-  const [resetSent, setResetSent] = useState(false)
 
+  const switchMode = (m) => { setMode(m); setErr(''); setInfo('') }
+
+  // ── Sign In ─────────────────────────────────────────────────────────────
   const login = async () => {
+    if (!email.trim() || !pass) { setErr('Enter email and password.'); return }
     setLoading(true); setErr('')
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass })
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(), password: pass,
+    })
     if (error) setErr(error.message)
     setLoading(false)
   }
 
+  // ── Sign Up ─────────────────────────────────────────────────────────────
+  const signup = async () => {
+    if (!fullName.trim())           { setErr('Enter your full name.'); return }
+    if (!email.trim())              { setErr('Enter your email.'); return }
+    if (pass.length < 8)            { setErr('Password must be at least 8 characters.'); return }
+    if (pass !== confirmPass)       { setErr('Passwords do not match.'); return }
+    setLoading(true); setErr(''); setInfo('')
+
+    const { data, error } = await supabase.auth.signUp({
+      email:    email.trim(),
+      password: pass,
+      options:  { data: { full_name: fullName.trim() } },
+    })
+
+    if (error) { setErr(error.message); setLoading(false); return }
+
+    // ── Create user_profiles row ────────────────────────────────────────
+    if (data?.user) {
+      const initials = fullName.trim().split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()
+      const COLORS   = ['#3B6FD4','#059669','#D97706','#7C3AED','#E8195A','#0891B2']
+      const color    = COLORS[Math.floor(Math.random() * COLORS.length)]
+      await supabase.from('user_profiles').upsert({
+        id:        data.user.id,
+        full_name: fullName.trim(),
+        initials,
+        role:      'admin',
+        color,
+      }, { onConflict: 'id' })
+    }
+
+    // Supabase may auto-confirm (if email confirm disabled) or require confirmation
+    if (data?.session) {
+      // Auto-confirmed — session is live, auth listener will pick it up
+      setInfo('Account created! Welcome.')
+    } else {
+      setInfo('Account created! Check your email to confirm before signing in.')
+      switchMode('login')
+    }
+    setLoading(false)
+  }
+
+  // ── Reset Password ──────────────────────────────────────────────────────
   const resetPassword = async () => {
     if (!email.trim()) { setErr('Enter your email first.'); return }
     setLoading(true); setErr('')
@@ -69,9 +121,19 @@ function AuthScreen() {
       redirectTo: `${window.location.origin}/`,
     })
     if (error) setErr(error.message)
-    else setResetSent(true)
+    else setInfo('Reset link sent — check your inbox.')
     setLoading(false)
   }
+
+  const handleKey = (e) => {
+    if (e.key !== 'Enter') return
+    if (mode === 'login')  login()
+    if (mode === 'signup') signup()
+    if (mode === 'reset')  resetPassword()
+  }
+
+  const titles = { login:'Sign in', signup:'Create account', reset:'Reset password' }
+  const subs   = { login:'Intelligence for Your Net Worth.', signup:'Join WORTH IQ — it\'s free.', reset:'We\'ll email you a reset link.' }
 
   return (
     <div style={{ minHeight:'100vh', background:'linear-gradient(135deg,#0B1E4F 0%,#1E3A8A 50%,#0B1E4F 100%)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
@@ -80,8 +142,10 @@ function AuthScreen() {
           <div key={i} style={{ position:'absolute', width:200+i*80, height:200+i*80, borderRadius:'50%', border:'1px solid rgba(255,255,255,.06)', top:`${10+i*12}%`, left:`${5+i*15}%` }} />
         ))}
       </div>
+
       <div style={{ width:'100%', maxWidth:460, position:'relative', zIndex:1 }}>
-        <div style={{ textAlign:'center', marginBottom:32 }}>
+        {/* Logo */}
+        <div style={{ textAlign:'center', marginBottom:28 }}>
           <div style={{ display:'inline-flex', alignItems:'center', gap:12, background:'rgba(255,255,255,.1)', backdropFilter:'blur(8px)', padding:'12px 24px', borderRadius:16, border:'1px solid rgba(255,255,255,.15)' }}>
             <div style={{ width:44, height:44, background:'linear-gradient(135deg,#3B6FD4,#10B981)', borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, fontWeight:800, color:'white' }}>₹</div>
             <div style={{ textAlign:'left' }}>
@@ -90,55 +154,172 @@ function AuthScreen() {
             </div>
           </div>
         </div>
-        <div style={{ background:'white', borderRadius:24, padding:36, boxShadow:'0 40px 80px rgba(0,0,0,.4)' }}>
-          <div style={{ marginBottom:28 }}>
-            <h2 style={{ fontSize:24, fontWeight:700, color:'#0B1E4F', margin:0, fontFamily:"'Syne',sans-serif" }}>
-              {mode === 'login' ? 'Sign in' : 'Reset password'}
-            </h2>
-            <p style={{ fontSize:13, color:'#6B7280', margin:'6px 0 0' }}>Intelligence for Your Net Worth.</p>
+
+        {/* Mode tabs */}
+        <div style={{ display:'flex', background:'rgba(255,255,255,.08)', borderRadius:12, padding:4, marginBottom:20, backdropFilter:'blur(8px)' }}>
+          {[['login','Sign In'],['signup','Sign Up']].map(([m,l]) => (
+            <button key={m} onClick={()=>switchMode(m)}
+              style={{ flex:1, padding:'9px 0', borderRadius:9, border:'none', cursor:'pointer', fontSize:13, fontWeight:600, transition:'.15s',
+                background: mode===m ? 'white' : 'transparent',
+                color:      mode===m ? '#0B1E4F' : 'rgba(255,255,255,.6)',
+                boxShadow:  mode===m ? '0 2px 8px rgba(0,0,0,.15)' : 'none',
+              }}>
+              {l}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ background:'white', borderRadius:24, padding:32, boxShadow:'0 40px 80px rgba(0,0,0,.4)' }}>
+          <div style={{ marginBottom:22 }}>
+            <h2 style={{ fontSize:22, fontWeight:700, color:'#0B1E4F', margin:0, fontFamily:"'Syne',sans-serif" }}>{titles[mode]}</h2>
+            <p style={{ fontSize:13, color:'#6B7280', margin:'5px 0 0' }}>{subs[mode]}</p>
           </div>
-          {resetSent ? (
-            <div style={{ background:'#F0FDF4', border:'1px solid #86EFAC', borderRadius:10, padding:16, fontSize:13, color:'#166534', textAlign:'center' }}>
-              ✓ Check your email for a reset link.
-              <button onClick={()=>{setMode('login');setResetSent(false)}} style={{ display:'block', margin:'10px auto 0', background:'none', border:'none', color:'#2563EB', cursor:'pointer', fontSize:12 }}>Back to sign in</button>
+
+          {/* Info banner */}
+          {info && (
+            <div style={{ background:'#F0FDF4', border:'1px solid #86EFAC', borderRadius:10, padding:'10px 14px', fontSize:13, color:'#166534', marginBottom:16 }}>
+              ✓ {info}
             </div>
-          ) : (
-            <>
-              <div style={{ marginBottom:16 }}>
-                <label style={LBL}>Email</label>
-                <input value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(mode==='login'?login():resetPassword())}
-                  placeholder="your@email.com" style={{ ...INP, marginTop:6 }} />
-              </div>
-              {mode === 'login' && (
-                <div style={{ marginBottom:8 }}>
-                  <label style={LBL}>Password</label>
-                  <div style={{ position:'relative', marginTop:6 }}>
-                    <input value={pass} type={showPass?'text':'password'} onChange={e=>setPass(e.target.value)} onKeyDown={e=>e.key==='Enter'&&login()}
-                      placeholder="••••••••" style={{ ...INP, paddingRight:40 }} />
-                    <button onClick={()=>setShowPass(v=>!v)} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:16, color:'#9CA3AF' }}>
-                      {showPass?'🙈':'👁️'}
-                    </button>
-                  </div>
-                </div>
-              )}
-              {err && <div style={{ background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:'10px 12px', fontSize:12, color:'#DC2626', marginBottom:12 }}>⚠️ {err}</div>}
-              <button onClick={mode==='login'?login:resetPassword} disabled={loading}
-                style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#1E3A8A,#3B6FD4)', color:'white', border:'none', borderRadius:12, fontSize:15, fontWeight:600, cursor:'pointer', marginTop:8, opacity:loading?.8:1, fontFamily:"'Syne',sans-serif" }}>
-                {loading ? '⏳ Please wait…' : mode==='login' ? 'Sign In →' : 'Send Reset Link →'}
-              </button>
-              <div style={{ textAlign:'center', marginTop:16 }}>
-                {mode === 'login'
-                  ? <button onClick={()=>{setMode('reset');setErr('')}} style={{ background:'none', border:'none', color:'#6B7280', fontSize:12, cursor:'pointer' }}>Forgot password?</button>
-                  : <button onClick={()=>{setMode('login');setErr('')}} style={{ background:'none', border:'none', color:'#2563EB', fontSize:12, cursor:'pointer' }}>← Back to sign in</button>
-                }
-              </div>
-            </>
           )}
+          {/* Error banner */}
+          {err && (
+            <div style={{ background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:'10px 12px', fontSize:12, color:'#DC2626', marginBottom:14 }}>
+              ⚠️ {err}
+            </div>
+          )}
+
+          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+
+            {/* Full Name — signup only */}
+            {mode === 'signup' && (
+              <div>
+                <label style={LBL}>Full Name *</label>
+                <input value={fullName} onChange={e=>setFullName(e.target.value)} onKeyDown={handleKey}
+                  placeholder="Kunal Bhatia" style={{ ...INP, marginTop:6 }} />
+              </div>
+            )}
+
+            {/* Email */}
+            <div>
+              <label style={LBL}>Email *</label>
+              <input value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={handleKey}
+                placeholder="your@email.com" style={{ ...INP, marginTop:6 }} />
+            </div>
+
+            {/* Password — login & signup */}
+            {(mode === 'login' || mode === 'signup') && (
+              <div>
+                <label style={LBL}>Password {mode==='signup'&&<span style={{fontWeight:400,textTransform:'none',letterSpacing:0}}>(min 8 chars)</span>}</label>
+                <div style={{ position:'relative', marginTop:6 }}>
+                  <input value={pass} type={showPass?'text':'password'} onChange={e=>setPass(e.target.value)} onKeyDown={handleKey}
+                    placeholder="••••••••" style={{ ...INP, paddingRight:40 }} />
+                  <button onClick={()=>setShowPass(v=>!v)} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:16, color:'#9CA3AF' }}>
+                    {showPass?'🙈':'👁️'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Confirm Password — signup only */}
+            {mode === 'signup' && (
+              <div>
+                <label style={LBL}>Confirm Password *</label>
+                <div style={{ position:'relative', marginTop:6 }}>
+                  <input value={confirmPass} type={showConfirm?'text':'password'} onChange={e=>setConfirm(e.target.value)} onKeyDown={handleKey}
+                    placeholder="••••••••" style={{ ...INP, paddingRight:40,
+                      borderColor: confirmPass && pass !== confirmPass ? '#FECACA' : undefined }} />
+                  <button onClick={()=>setShowConfirm(v=>!v)} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:16, color:'#9CA3AF' }}>
+                    {showConfirm?'🙈':'👁️'}
+                  </button>
+                </div>
+                {confirmPass && pass !== confirmPass && (
+                  <div style={{ fontSize:11, color:'#DC2626', marginTop:4 }}>Passwords don't match</div>
+                )}
+              </div>
+            )}
+
+            {/* Password strength indicator — signup only */}
+            {mode === 'signup' && pass.length > 0 && (
+              <PasswordStrength pass={pass} />
+            )}
+
+            {/* Forgot password link — login only */}
+            {mode === 'login' && (
+              <div style={{ textAlign:'right', marginTop:-6 }}>
+                <button onClick={()=>switchMode('reset')} style={{ background:'none', border:'none', color:'#6B7280', fontSize:12, cursor:'pointer' }}>
+                  Forgot password?
+                </button>
+              </div>
+            )}
+
+            {/* Reset mode — just email + back */}
+            {mode === 'reset' && (
+              <button onClick={()=>switchMode('login')} style={{ background:'none', border:'none', color:'#2563EB', fontSize:12, cursor:'pointer', textAlign:'left' }}>
+                ← Back to sign in
+              </button>
+            )}
+
+            {/* Primary CTA */}
+            <button
+              onClick={mode==='login'?login:mode==='signup'?signup:resetPassword}
+              disabled={loading || (mode==='signup' && pass !== confirmPass && confirmPass.length > 0)}
+              style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#1E3A8A,#3B6FD4)', color:'white', border:'none', borderRadius:12, fontSize:15, fontWeight:600, cursor:'pointer', opacity:loading?.8:1, fontFamily:"'Syne',sans-serif", marginTop:4 }}>
+              {loading
+                ? '⏳ Please wait…'
+                : mode==='login'  ? 'Sign In →'
+                : mode==='signup' ? 'Create Account →'
+                : 'Send Reset Link →'
+              }
+            </button>
+
+            {/* Terms — signup only */}
+            {mode === 'signup' && (
+              <p style={{ fontSize:11, color:'#9CA3AF', textAlign:'center', margin:0, lineHeight:1.6 }}>
+                By signing up you agree to our{' '}
+                <span style={{ color:'#6B7280', textDecoration:'underline', cursor:'pointer' }}>Terms of Service</span>
+                {' '}and{' '}
+                <span style={{ color:'#6B7280', textDecoration:'underline', cursor:'pointer' }}>Privacy Policy</span>.
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </div>
   )
 }
+
+// ── Password strength meter ───────────────────────────────────────────────────
+function PasswordStrength({ pass }) {
+  const checks = [
+    { label:'8+ chars',       ok: pass.length >= 8 },
+    { label:'Uppercase',      ok: /[A-Z]/.test(pass) },
+    { label:'Number',         ok: /[0-9]/.test(pass) },
+    { label:'Special char',   ok: /[^A-Za-z0-9]/.test(pass) },
+  ]
+  const score = checks.filter(c=>c.ok).length
+  const colors = ['#E8195A','#D97706','#D97706','#059669','#059669']
+  const labels = ['Very weak','Weak','Fair','Strong','Very strong']
+  return (
+    <div>
+      <div style={{ display:'flex', gap:4, marginBottom:6 }}>
+        {[0,1,2,3].map(i => (
+          <div key={i} style={{ flex:1, height:3, borderRadius:2, background: i < score ? colors[score] : '#E5E7EB', transition:'.3s' }} />
+        ))}
+      </div>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <div style={{ display:'flex', gap:8 }}>
+          {checks.map(c => (
+            <span key={c.label} style={{ fontSize:10, color:c.ok?'#059669':'#9CA3AF', fontWeight:c.ok?600:400 }}>
+              {c.ok?'✓':''} {c.label}
+            </span>
+          ))}
+        </div>
+        <span style={{ fontSize:11, color:colors[score], fontWeight:600 }}>{labels[score]}</span>
+      </div>
+    </div>
+  )
+}
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // LOADING SCREEN
@@ -166,12 +347,14 @@ export default function KBWealthEnterprise() {
   const [data, setData]               = useState({
     liabilities:[], liquidity:[], property:[], cash:[], goals:[],
     nw_history:[], alerts:[],
+    // ── MF data: funds (with nav), transactions (for unit calc) ──────────
     mf_funds:[], mf_transactions:[],
   })
   const [dataLoading, setDataLoading] = useState(false)
   const [modal, setModal]             = useState(null)
   const [toast, setToast]             = useState(null)
 
+  // ── Auth listener ─────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setAuthUser(session?.user ?? null)
@@ -182,6 +365,7 @@ export default function KBWealthEnterprise() {
     return () => subscription.unsubscribe()
   }, [])
 
+  // ── Load profile ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!authUser) { setProfile(null); return }
     const loadProfile = async () => {
@@ -202,11 +386,14 @@ export default function KBWealthEnterprise() {
     loadProfile()
   }, [authUser])
 
+  // ── Load all wealth + MF data ─────────────────────────────────────────────
   const loadData = useCallback(async () => {
     if (!authUser) return
     setDataLoading(true)
     const uid = authUser.id
     try {
+      // ── Check if user_id column exists in portfolio_funds ────────────────
+      // Probe cheaply; if column missing (pre-migration), fall back to unfiltered
       const probe = await supabase.from('portfolio_funds').select('user_id').limit(1)
       const mfUserIdMissing =
         !!probe.error &&
@@ -214,6 +401,10 @@ export default function KBWealthEnterprise() {
           probe.error.message?.toLowerCase().includes('user_id') ||
           probe.error.message?.toLowerCase().includes('column'))
 
+      // ── Build MF queries — user-scoped when column exists ────────────────
+      // FIX: fetch current_nav directly from portfolio_funds (stored by NAV cron)
+      //      and fetch transactions to compute units held per fund.
+      //      This matches exactly what mf/page.tsx computes.
       const mfFundsQuery = mfUserIdMissing
         ? supabase.from('portfolio_funds').select('id, fund_name, isin, category, sip_amount, is_active, current_nav').order('created_at', { ascending:true })
         : supabase.from('portfolio_funds').select('id, fund_name, isin, category, sip_amount, is_active, current_nav').eq('user_id', uid).order('created_at', { ascending:true })
@@ -252,10 +443,12 @@ export default function KBWealthEnterprise() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  // ── Trigger NW snapshot after writes ─────────────────────────────────────
   const triggerSnapshot = useCallback(async () => {
     try { await fetch('/api/snapshot', { method:'POST' }) } catch (_) {}
   }, [])
 
+  // ── CRUD ──────────────────────────────────────────────────────────────────
   const showToast = useCallback((msg, type='success') => {
     setToast({ msg, type }); setTimeout(()=>setToast(null), 2800)
   }, [])
@@ -309,28 +502,17 @@ export default function KBWealthEnterprise() {
     await supabase.auth.signOut()
   }, [])
 
-  // ── UPDATED: totals now includes MF corpus in liq ─────────────────────────
+  // ── Computed totals ───────────────────────────────────────────────────────
   const totals = useMemo(() => {
-    const liab     = data.liabilities.reduce((s,x) => s + Number(x.outstanding ?? 0), 0)
-    const liqManual= data.liquidity.reduce((s,x)   => s + Number(x.value       ?? 0), 0)
-    const prop     = data.property.reduce((s,x)    => s + Number(x.current     ?? 0), 0)
-    const cash     = data.cash.reduce((s,x)        => s + Number(x.balance     ?? 0), 0)
-
-    const mfValue = (data.mf_funds || []).reduce((tot, fund) => {
-      let units = 0
-      for (const t of (data.mf_transactions || []).filter(t => t.fund_id === fund.id)) {
-        const u = Number(t.units_allotted || 0)
-        if (['sip','lumpsum','buy','stp','switch_in'].includes(t.type)) units += u
-        if (['sell','switch_out'].includes(t.type))                      units -= u
-      }
-      return tot + units * Number(fund.current_nav || 0)
-    }, 0)
-
-    const liq    = liqManual + mfValue
+    const liab  = data.liabilities.reduce((s,x) => s + Number(x.outstanding ?? 0), 0)
+    const liq   = data.liquidity.reduce((s,x)   => s + Number(x.value       ?? 0), 0)
+    const prop  = data.property.reduce((s,x)    => s + Number(x.current     ?? 0), 0)
+    const cash  = data.cash.reduce((s,x)        => s + Number(x.balance     ?? 0), 0)
     const assets = liq + prop + cash
-    return { liab, liq, liqManual, mfValue, prop, cash, assets, nw: assets - liab }
+    return { liab, liq, prop, cash, assets, nw: assets - liab }
   }, [data])
 
+  // ── Auth object for UI ────────────────────────────────────────────────────
   const auth = profile ? {
     name:     profile.full_name,
     initials: profile.initials ?? profile.full_name?.slice(0,2).toUpperCase() ?? 'U',
@@ -371,7 +553,7 @@ export default function KBWealthEnterprise() {
 
           {mod==='overview'    && <Overview      data={data} totals={totals} setMod={setMod} />}
           {mod==='liabilities' && <LiabilitiesPage data={data} totals={totals} isViewer={isViewer} onAdd={()=>setModal({type:'add',module:'liabilities',item:{}})} onEdit={item=>setModal({type:'edit',module:'liabilities',item})} onDelete={id=>deleteItem('liabilities',id)} />}
-          {mod==='liquidity'   && <LiquidityPage   data={data} totals={totals} isViewer={isViewer} setMod={setMod} onAdd={()=>setModal({type:'add',module:'liquidity',item:{}})} onEdit={item=>setModal({type:'edit',module:'liquidity',item})} onDelete={id=>deleteItem('liquidity',id)} />}
+          {mod==='liquidity'   && <LiquidityPage   data={data} totals={totals} isViewer={isViewer} onAdd={()=>setModal({type:'add',module:'liquidity',item:{}})} onEdit={item=>setModal({type:'edit',module:'liquidity',item})} onDelete={id=>deleteItem('liquidity',id)} />}
           {mod==='property'    && <PropertyPage    data={data} totals={totals} isViewer={isViewer} onAdd={()=>setModal({type:'add',module:'property',item:{}})} onEdit={item=>setModal({type:'edit',module:'property',item})} onDelete={id=>deleteItem('property',id)} />}
           {mod==='cash'        && <CashPage        data={data} totals={totals} isViewer={isViewer} onAdd={()=>setModal({type:'add',module:'cash',item:{}})} onEdit={item=>setModal({type:'edit',module:'cash',item})} onDelete={id=>deleteItem('cash',id)} />}
           {mod==='networth'    && <NetWorthPage    data={data} totals={totals} />}
@@ -411,8 +593,8 @@ function Sidebar({ mod, setMod, auth, onLogout, alertCount }) {
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ width:40, height:40, background:'linear-gradient(135deg,#3B6FD4,#10B981)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:800, color:'white', flexShrink:0 }}>₹</div>
           <div>
-            <div style={{ color:'white', fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, lineHeight:1.1 }}>WORTH IQ</div>
-            <div style={{ color:'rgba(255,255,255,.4)', fontSize:9, letterSpacing:'1.5px', textTransform:'uppercase' }}>GOLD</div>
+            <div style={{ color:'white', fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, lineHeight:1.1 }}>NW Portfolio</div>
+            <div style={{ color:'rgba(255,255,255,.4)', fontSize:9, letterSpacing:'1.5px', textTransform:'uppercase' }}>Enterprise</div>
           </div>
         </div>
       </div>
@@ -443,7 +625,7 @@ function Sidebar({ mod, setMod, auth, onLogout, alertCount }) {
         </div>
         <div style={{ background:'rgba(255,255,255,.05)', borderRadius:8, padding:'8px 12px', marginBottom:8 }}>
           <div style={{ color:'rgba(255,255,255,.5)', fontSize:9, letterSpacing:'1px', textTransform:'uppercase', marginBottom:2 }}>Platform</div>
-          <div style={{ color:'rgba(255,255,255,.8)', fontSize:11, fontWeight:500 }}>Intelligence for Your Net Worth.</div>
+          <div style={{ color:'rgba(255,255,255,.8)', fontSize:11, fontWeight:500 }}>Your Wealth. Our Priority.</div>
         </div>
         <button onClick={onLogout} style={{ width:'100%', padding:'8px', background:'rgba(239,68,68,.15)', color:'#FCA5A5', border:'1px solid rgba(239,68,68,.2)', borderRadius:8, fontSize:12, cursor:'pointer', fontWeight:500 }}>
           Sign Out
@@ -460,7 +642,7 @@ function Header({ auth, dateLabel, totals, alerts }) {
     <div style={{ background:'white', borderBottom:'1px solid #E5E7EB', padding:'0 28px', height:64, display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0, position:'relative', zIndex:50 }}>
       <div>
         <h1 style={{ fontFamily:"'Syne',sans-serif", fontSize:20, fontWeight:700, color:'#0B1E4F', letterSpacing:'-0.3px' }}>Wealth Overview</h1>
-        <p style={{ fontSize:11, color:'#9CA3AF', margin:0 }}>Your complete financial Intellegence</p>
+        <p style={{ fontSize:11, color:'#9CA3AF', margin:0 }}>Your complete financial snapshot</p>
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:16 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8, background:'#F8FAFC', border:'1px solid #E5E7EB', borderRadius:10, padding:'7px 14px', fontSize:13, color:'#374151', fontWeight:500 }}>
@@ -501,31 +683,19 @@ function Header({ auth, dateLabel, totals, alerts }) {
 // OVERVIEW
 // ══════════════════════════════════════════════════════════════════════════════
 function Overview({ data, totals, setMod }) {
-  // ── UPDATED: liquidity items include MF corpus as a line ──────────────────
   const cards = [
-    { key:'liabilities', label:'Total Liabilities',
-      val:totals.liab,
-      items: data.liabilities.map(x=>({name:x.name,val:Number(x.outstanding)})),
-      colors:C.liability, icon:'🏛️', mod:'liabilities', sign:-1 },
-    { key:'liquidity',   label:'Liquidity (Investments)',
-      val:totals.liq,
-      items: [
-        ...data.liquidity.map(x=>({name:x.name,val:Number(x.value)})),
-        ...(totals.mfValue > 0 ? [{ name:'Mutual Funds (MF)', val:totals.mfValue }] : []),
-      ],
-      colors:C.liquidity, icon:'📈', mod:'liquidity', sign:1 },
-    { key:'property',    label:'Property Assets',
-      val:totals.prop,
-      items: data.property.map(x=>({name:x.name,val:Number(x.current)})),
-      colors:C.property, icon:'🏠', mod:'property', sign:1 },
-    { key:'cash',        label:'Cash Balance',
-      val:totals.cash,
-      items: data.cash.map(x=>({name:x.name,val:Number(x.balance)})),
-      colors:C.cash, icon:'💵', mod:'cash', sign:1 },
+    { key:'liabilities', label:'Total Liabilities',       val:totals.liab, items:data.liabilities.map(x=>({name:x.name,val:Number(x.outstanding)})), colors:C.liability, icon:'🏛️', mod:'liabilities', sign:-1 },
+    { key:'liquidity',   label:'Liquidity (Investments)', val:totals.liq,  items:data.liquidity.map(x=>({name:x.name,val:Number(x.value)})),         colors:C.liquidity, icon:'📈', mod:'liquidity',   sign:1  },
+    { key:'property',    label:'Property Assets',         val:totals.prop, items:data.property.map(x=>({name:x.name,val:Number(x.current)})),        colors:C.property,  icon:'🏠', mod:'property',    sign:1  },
+    { key:'cash',        label:'Cash Balance',            val:totals.cash, items:data.cash.map(x=>({name:x.name,val:Number(x.balance)})),             colors:C.cash,      icon:'💵', mod:'cash',        sign:1  },
   ]
 
+  // ── FIX: Compute MF corpus exactly as mf/page.tsx does ───────────────────
+  // For each fund: sum units from transactions, multiply by current_nav stored on fund row.
+  // Falls back to 0 if no nav available (pre-NAV-cron state).
   const mfValue = useMemo(() => {
     return (data.mf_funds || []).reduce((total, fund) => {
+      // All buy-side transactions for this fund
       const fundTxs = (data.mf_transactions || []).filter(t => t.fund_id === fund.id)
       let units = 0
       for (const t of fundTxs) {
@@ -533,6 +703,7 @@ function Overview({ data, totals, setMod }) {
         if (['sip','lumpsum','buy','stp','switch_in'].includes(t.type)) units += u
         if (['sell','switch_out'].includes(t.type))                      units -= u
       }
+      // current_nav is stored on portfolio_funds row (updated by NAV cron daily)
       const nav = Number(fund.current_nav || 0)
       return total + (units * nav)
     }, 0)
@@ -540,6 +711,7 @@ function Overview({ data, totals, setMod }) {
 
   return (
     <div className="fade-up">
+      {/* Top stat strip */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12, marginBottom:20 }}>
         {cards.map(c => (
           <div key={c.key} style={{ background:'white', borderRadius:14, padding:'16px 18px', border:'1px solid #E8ECF4', display:'flex', alignItems:'center', gap:12, cursor:'pointer' }} onClick={()=>setMod(c.mod)}>
@@ -552,6 +724,7 @@ function Overview({ data, totals, setMod }) {
           </div>
         ))}
 
+        {/* MF Corpus card — uses computed mfValue */}
         <div style={{ background:'linear-gradient(135deg,#0B1E4F,#1E3A8A)', borderRadius:14, padding:'16px 18px', display:'flex', alignItems:'center', gap:12, position:'relative', overflow:'hidden', cursor:'pointer' }} onClick={()=>setMod('mf')}>
           <div style={{ position:'absolute', right:-10, top:-10, width:80, height:80, borderRadius:'50%', border:'1px solid rgba(255,255,255,.1)' }} />
           <div style={{ width:48, height:48, borderRadius:14, background:'rgba(255,255,255,.1)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, flexShrink:0 }}>💎</div>
@@ -563,10 +736,12 @@ function Overview({ data, totals, setMod }) {
         </div>
       </div>
 
+      {/* Detail cards */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:16 }}>
         {cards.map(c => <OverviewCard key={c.key} card={c} totalAssets={totals.assets} onClick={()=>setMod(c.mod)} />)}
       </div>
 
+      {/* Net Worth equation */}
       <div style={{ background:'white', borderRadius:16, padding:'22px 28px', border:'1px solid #E8ECF4', display:'flex', alignItems:'center', gap:20 }}>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
           <div style={{ width:48, height:48, borderRadius:14, background:'#EFF6FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:22 }}>🏦</div>
@@ -724,63 +899,24 @@ function LiabilitiesPage({ data, totals, onAdd, onEdit, onDelete, isViewer }) {
   />
 }
 
-// ── LIQUIDITY — UPDATED: includes MF corpus banner + 4-stat summary ───────────
-function LiquidityPage({ data, totals, onAdd, onEdit, onDelete, isViewer, setMod }) {
-  const invested    = data.liquidity.reduce((s,x) => s + Number(x.invested ?? 0), 0)
-  const manualGain  = totals.liqManual - invested
-  const mfFundCount = (data.mf_funds || []).length
-  const activeSIPs  = (data.mf_funds || []).filter(f => f.is_active && f.sip_amount > 0).length
-
+// ── LIQUIDITY ─────────────────────────────────────────────────────────────────
+function LiquidityPage({ data, totals, onAdd, onEdit, onDelete, isViewer }) {
+  const invested = data.liquidity.reduce((s,x) => s + Number(x.invested ?? 0), 0)
+  const gain     = totals.liq - invested
   return <ModulePage
-    title="Liquidity (Investments)" icon="📈"
-    total={totals.liq}
-    totalLabel="Total Investment Value (incl. MF Corpus)"
+    title="Liquidity (Investments)" icon="📈" total={totals.liq} totalLabel="Total Investment Value"
     color={C.liquidity} isViewer={isViewer} items={data.liquidity}
     onAdd={onAdd} onEdit={onEdit} onDelete={onDelete}
-    extraContent={<>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:12 }}>
-        {[
-          { l:'Manual Invested', v:fmtFull(invested),       c:'#374151'        },
-          { l:'Manual Gain',     v:fmtFull(manualGain),     c:C.liquidity.main },
-          { l:'MF Corpus',       v:fmtFull(totals.mfValue), c:C.mf.main        },
-          { l:'Total Liquidity', v:fmtFull(totals.liq),     c:C.nw.main        },
-        ].map(s => (
+    extraContent={
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:16 }}>
+        {[{l:'Total Invested',v:fmtFull(invested),c:'#374151'},{l:'Total Gain',v:fmtFull(gain),c:C.liquidity.main},{l:'Return',v:`+${pct(gain,invested)}%`,c:C.liquidity.main}].map(s=>(
           <div key={s.l} style={{ background:'white', borderRadius:12, padding:'14px 16px', border:'1px solid #E8ECF4' }}>
             <div style={{ fontSize:11, color:'#9CA3AF' }}>{s.l}</div>
             <div style={{ fontFamily:"'Syne',sans-serif", fontSize:20, fontWeight:700, color:s.c }}>{s.v}</div>
           </div>
         ))}
       </div>
-      <div style={{ background:'linear-gradient(135deg,#F5F3FF,#EDE9FE)', border:'1px solid #DDD6FE', borderRadius:14, padding:'14px 18px', marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <div style={{ width:40, height:40, borderRadius:12, background:'#7C3AED', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>📈</div>
-          <div>
-            <div style={{ fontSize:13, fontWeight:600, color:'#5B21B6' }}>Mutual Funds — auto-synced from MF Module</div>
-            <div style={{ fontSize:11, color:'#7C3AED', marginTop:2 }}>
-              {mfFundCount > 0
-                ? `${mfFundCount} funds · ${activeSIPs} active SIPs · NAV updated daily via AMFI cron`
-                : 'No MF funds added yet — go to MF Manager to add SIPs'}
-            </div>
-          </div>
-        </div>
-        <div style={{ textAlign:'right', flexShrink:0 }}>
-          <div style={{ fontFamily:"'Syne',sans-serif", fontSize:22, fontWeight:700, color:'#7C3AED' }}>
-            {totals.mfValue > 0 ? fmtFull(totals.mfValue) : '₹0'}
-          </div>
-          {setMod && (
-            <button onClick={()=>setMod('mf')}
-              style={{ fontSize:11, color:'#7C3AED', background:'none', border:'none', cursor:'pointer', fontWeight:600, marginTop:2, display:'block', marginLeft:'auto' }}>
-              Open MF Manager →
-            </button>
-          )}
-        </div>
-      </div>
-      {data.liquidity.length > 0 && totals.mfValue > 0 && (
-        <div style={{ fontSize:11, fontWeight:600, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>
-          Other Manual Investments
-        </div>
-      )}
-    </>}
+    }
     columns={[
       { key:'name',     label:'Asset',         w:'1.5fr', bold:true, render:item=><><span>{CAT_ICONS[item.cat]||'💰'} {item.name}</span>{item.cat==='mf'&&<span style={{marginLeft:6,fontSize:9,background:'#F5F3FF',color:'#7C3AED',padding:'2px 6px',borderRadius:4,fontWeight:600}}>MF →</span>}</> },
       { key:'value',    label:'Current Value', w:'1fr',   mono:true, color:C.liquidity.main, render:item=>fmtFull(Number(item.value)) },
@@ -908,11 +1044,12 @@ function NetWorthPage({ data, totals }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// MF PAGE
+// MF PAGE (inline summary — full manager at /mf)
 // ══════════════════════════════════════════════════════════════════════════════
 function MFPage({ data, isViewer, onRefresh }) {
   const [navFilter, setNavFilter] = useState('all')
 
+  // ── Same computation as mf/page.tsx enriched funds ───────────────────────
   const funds = useMemo(() => {
     return (data.mf_funds || []).map(f => {
       const fundTxs = (data.mf_transactions || []).filter(t => t.fund_id === f.id)
@@ -959,6 +1096,7 @@ function MFPage({ data, isViewer, onRefresh }) {
         </div>
       </div>
 
+      {/* Summary hero */}
       <div style={{ background:'linear-gradient(135deg,#5B21B6,#7C3AED)', borderRadius:16, padding:'20px 28px', marginBottom:20, color:'white', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:20 }}>
         {[
           { l:'Portfolio Value', v:fmtINR(totalCurrent),   sub: fmtFull(totalCurrent) },
@@ -974,6 +1112,7 @@ function MFPage({ data, isViewer, onRefresh }) {
         ))}
       </div>
 
+      {/* Filter tabs */}
       <div style={{ display:'flex', gap:8, marginBottom:16 }}>
         {[['all','All Funds'],['active','Active SIPs'],['holding','Holdings']].map(([val,lbl])=>(
           <button key={val} onClick={()=>setNavFilter(val)}
@@ -986,6 +1125,7 @@ function MFPage({ data, isViewer, onRefresh }) {
         </div>
       </div>
 
+      {/* Funds table */}
       <div style={{ background:'white', borderRadius:16, border:'1px solid #E8ECF4', overflow:'hidden' }}>
         <div style={{ display:'grid', gridTemplateColumns:'2fr 70px 100px 100px 100px 100px 80px', background:'#F8FAFC', padding:'10px 16px', borderBottom:'1px solid #E5E7EB' }}>
           {['Fund','SIP/mo','NAV','Invested','Current','Gain/Loss','Status'].map(h=>(
@@ -1032,6 +1172,7 @@ function MFPage({ data, isViewer, onRefresh }) {
         ))}
       </div>
 
+      {/* Link to full MF manager */}
       <div style={{ marginTop:16, background:'linear-gradient(135deg,#5B21B6,#7C3AED)', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', color:'white' }}>
         <div>
           <div style={{ fontSize:13, fontWeight:600, marginBottom:3 }}>Full MF Manager available</div>
@@ -1180,7 +1321,7 @@ function ItemModal({ modal, onClose, onSave }) {
     liabilities: [['home_loan','🏠 Home Loan'],['personal','👤 Personal Loan'],['car_loan','🚗 Car Loan'],['overdraft','💳 OD/Overdraft'],['credit_card','💳 Credit Card'],['business','🏢 Business Loan'],['other','📋 Other']],
     liquidity:   [['equity','📈 Equity/Stocks'],['mf','📊 Mutual Funds'],['gold','🥇 Gold/SGB'],['ppf','🏦 PPF/EPF'],['fd','📑 FD'],['bonds','💰 Bonds'],['nps','🏛️ NPS']],
     property:    [['residential','🏡 Residential'],['commercial','🏢 Commercial'],['land','🌱 Land/Plot'],['industrial','🏗️ Industrial']],
-    cash:        [['savings','🏦 Savings'],['current','💼 Current'],['hand','💵 Cash in Hand'],['cashloan','💰 Cash Loan Receivable'],['wallet','📱 Digital Wallet']],
+    cash:        [['savings','🏦 Savings'],['current','💼 Current'],['hand','💵 Cash in Hand'],['wallet','📱 Digital Wallet']],
     goals:       [['investment','📈 Investment'],['liability','🏛️ Liability'],['property','🏠 Property'],['cash','💵 Cash'],['other','📋 Other']],
   }
   const accentMap = { liabilities:C.liability.main, liquidity:C.liquidity.main, property:C.property.main, cash:C.cash.main, goals:C.nw.main }
@@ -1209,7 +1350,7 @@ function ItemModal({ modal, onClose, onSave }) {
               <label style={LBL}>Name / Description *</label>
               <input value={form.name} onChange={e=>f('name',e.target.value)} placeholder="e.g. Home Loan - SBI" style={INP} />
             </div>
-            {(isLiab||isCash) && <div><label style={LBL}>Bank / Institution/ Person</label><input value={form.bank||''} onChange={e=>f('bank',e.target.value)} style={INP} /></div>}
+            {(isLiab||isCash) && <div><label style={LBL}>Bank / Institution</label><input value={form.bank||''} onChange={e=>f('bank',e.target.value)} style={INP} /></div>}
             {isLiab && <>
               <div><label style={LBL}>Outstanding (₹)</label><input type="number" min="0" value={form.outstanding} onChange={e=>f('outstanding',+e.target.value)} style={INP} /></div>
               <div><label style={LBL}>EMI / Month (₹)</label><input type="number" min="0" value={form.emi} onChange={e=>f('emi',+e.target.value)} style={INP} /></div>
@@ -1249,5 +1390,6 @@ function ItemModal({ modal, onClose, onSave }) {
   )
 }
 
+// ── SHARED STYLE CONSTANTS ────────────────────────────────────────────────────
 const LBL = { display:'block', fontSize:11, fontWeight:600, color:'#6B7280', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:6 }
 const INP = { width:'100%', padding:'10px 12px', border:'1.5px solid #E5E7EB', borderRadius:9, fontSize:13, outline:'none', color:'#111', boxSizing:'border-box' }
