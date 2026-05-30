@@ -1519,7 +1519,7 @@ const [form, setForm] = useState({
               <div><label style={LBL}>Interest Rate (%)</label><input type="number" step=".1" min="0" value={form.rate} onChange={e=>f('rate',+e.target.value)} style={INP} /></div>
               <div><label style={LBL}>End Date</label><input type="month" value={form.end_date?.slice(0,7)||''} onChange={e=>f('end_date',e.target.value)} style={INP} /></div>
             </>}
-            // AFTER — split into two conditional blocks:
+            
 {isLiq && form.cat !== 'insurance' && form.cat !== 'ulip' && <>
   <div>
     <label style={LBL}>Current Value (₹)</label>
