@@ -1,10 +1,11 @@
+// app/mf/page.tsx — full file with mobile responsiveness + back nav
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { calcProjection, MY_FUNDS } from '@/lib/funds'
 
-// ─── Color map from canonical fund list ──────────────────────────────────────
+// ─── Color map ───────────────────────────────────────────────────────────────
 const FUND_COLORS: Record<string, string> = Object.fromEntries(
   MY_FUNDS.map(f => [f.isin, f.color])
 )
@@ -31,7 +32,6 @@ interface Alert {
   message: string; triggered_at: string; is_read: boolean
 }
 
-// ─── NW Portfolio design tokens (matches page.jsx exactly) ───────────────────
 const C = {
   sidebar:       '#0B1E4F',
   sidebarActive: '#1E3A8A',
@@ -109,14 +109,13 @@ function targetDate(months: number | null): string {
 
 const TABS = [
   { id: 'dashboard',    label: 'Dashboard',    icon: '⊞' },
-  { id: 'sip',         label: 'SIP Funds',    icon: '🔄' },
+  { id: 'sip',         label: 'SIPs',         icon: '🔄' },
   { id: 'lumpsum',     label: 'Lumpsum',      icon: '💰' },
   { id: 'transactions',label: 'Transactions', icon: '📋' },
   { id: 'projections', label: 'Projections',  icon: '📈' },
   { id: 'agent',       label: 'AI Advisor',   icon: '🤖' },
 ]
 
-// ─── Shared label/input style (matches page.jsx) ─────────────────────────────
 const LBL: React.CSSProperties = {
   display: 'block', fontSize: 11, fontWeight: 600, color: C.text3,
   textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6,
@@ -126,6 +125,156 @@ const INP: React.CSSProperties = {
   borderRadius: 9, fontSize: 13, outline: 'none', color: '#111', boxSizing: 'border-box',
   fontFamily: "'DM Sans', sans-serif",
 }
+
+// ── Mobile-responsive global CSS ─────────────────────────────────────────────
+const MF_CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Syne:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+  *{box-sizing:border-box}
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:rgba(0,0,0,.15);border-radius:2px}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  @keyframes toastIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes loadBar{0%{transform:translateX(-100%)}100%{transform:translateX(250%)}}
+  .fade-up{animation:fadeUp .25s ease both}
+
+  /* ── MF layout shell ── */
+  .mf-shell{min-height:100vh;background:#F1F5FB;font-family:'DM Sans',-apple-system,sans-serif;display:flex;flex-direction:column}
+
+  /* ── Top header ── */
+  .mf-header{
+    background:white;border-bottom:1px solid #E5E7EB;
+    padding:0 28px;height:64px;display:flex;align-items:center;
+    justify-content:space-between;position:sticky;top:0;z-index:100;flex-shrink:0;
+  }
+  .mf-header-left{display:flex;align-items:center;gap:12px}
+  .mf-back-btn{
+    display:flex;align-items:center;gap:6px;background:#F1F5FB;
+    border:1px solid #E5E7EB;border-radius:10px;padding:7px 12px;
+    font-size:13px;font-weight:600;color:#0B1E4F;cursor:pointer;
+    text-decoration:none;transition:.15s;white-space:nowrap;
+  }
+  .mf-back-btn:hover{background:#E8ECF4}
+
+  /* ── Tab bar (desktop horizontal) ── */
+  .mf-tabs{
+    display:flex;background:white;border-bottom:1px solid #E5E7EB;
+    padding:0 28px;gap:4px;overflow-x:auto;flex-shrink:0;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none;
+  }
+  .mf-tabs::-webkit-scrollbar{display:none}
+  .mf-tab{
+    padding:14px 16px;font-size:13px;font-weight:500;color:#6B7280;
+    border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;
+    white-space:nowrap;transition:.15s;display:flex;align-items:center;gap:6px;
+  }
+  .mf-tab.active{color:#7C3AED;border-bottom-color:#7C3AED;font-weight:600}
+
+  /* ── Body ── */
+  .mf-body{flex:1;padding:24px 28px 40px;overflow-y:auto}
+
+  /* ── Bottom mobile nav ── */
+  .mf-bottom-nav{display:none}
+
+  /* ── Grids ── */
+  .mf-grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+  .mf-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px}
+  .mf-grid-2{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:20px}
+  .mf-hero{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+
+  /* ── Table scroll ── */
+  .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+
+  /* ── Module header ── */
+  .module-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px}
+
+  /* ── Modal ── */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px}
+  .modal-box{background:white;border-radius:20px;width:520px;max-width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 30px 60px rgba(0,0,0,.3)}
+
+  /* ── Toast ── */
+  .mf-toast{position:fixed;bottom:90px;right:20px;z-index:2000;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,.2);animation:toastIn .25s ease;max-width:calc(100vw - 40px)}
+
+  /* ════════════════════════════════
+     TABLET  ≤ 1024px
+  ════════════════════════════════ */
+  @media(max-width:1024px){
+    .mf-header{padding:0 16px}
+    .mf-tabs{padding:0 16px}
+    .mf-body{padding:20px 16px 32px}
+    .mf-grid-4{grid-template-columns:repeat(2,1fr)}
+    .mf-hero{grid-template-columns:repeat(2,1fr)}
+    .mf-grid-3{grid-template-columns:repeat(2,1fr)}
+  }
+
+  /* ════════════════════════════════
+     MOBILE  ≤ 768px
+  ════════════════════════════════ */
+  @media(max-width:768px){
+    /* Header shrinks */
+    .mf-header{padding:0 14px;height:56px}
+    .mf-back-btn span{display:none}   /* hide text, keep arrow icon */
+    .mf-header-title{font-size:15px!important}
+    .mf-header-subtitle{display:none}
+
+    /* Hide desktop tab bar; show bottom nav */
+    .mf-tabs{display:none}
+    .mf-bottom-nav{
+      display:flex;position:fixed;bottom:0;left:0;right:0;z-index:200;
+      background:#0B1E4F;border-top:1px solid rgba(255,255,255,.1);
+      padding:6px 0 env(safe-area-inset-bottom,6px);
+    }
+    .mf-bottom-nav-item{
+      flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+      background:none;border:none;cursor:pointer;padding:6px 2px;
+      font-size:9px;font-weight:500;color:rgba(255,255,255,.5);
+      transition:.15s;min-width:0;
+    }
+    .mf-bottom-nav-item.active{color:white}
+    .mf-bottom-nav-item .nav-icon{font-size:18px;line-height:1}
+
+    /* Body padding for fixed bottom nav */
+    .mf-body{padding:14px 14px 88px}
+
+    /* Grids → single column */
+    .mf-grid-4{grid-template-columns:1fr}
+    .mf-grid-3{grid-template-columns:1fr}
+    .mf-grid-2{grid-template-columns:1fr}
+    .mf-hero{grid-template-columns:repeat(2,1fr);gap:10px}
+
+    /* Modal → bottom sheet */
+    .modal-overlay{align-items:flex-end!important;padding:0!important}
+    .modal-box{width:100%!important;border-radius:20px 20px 0 0!important;max-height:92vh!important}
+
+    /* Toast above bottom nav */
+    .mf-toast{bottom:80px}
+
+    /* Module header wraps */
+    .module-header{flex-direction:column;align-items:flex-start}
+
+    /* Fund search dropdown */
+    .fund-search-drop{max-height:200px!important}
+
+    /* Agent output */
+    .agent-output{font-size:13px!important}
+
+    /* Milestone grid → 1 col */
+    .milestone-grid{grid-template-columns:1fr!important}
+
+    /* Proj breakdown → stack */
+    .proj-breakdown{flex-direction:column!important;gap:8px!important}
+
+    /* Pill tabs (projections period) */
+    .period-tabs{flex-wrap:wrap;gap:6px}
+
+    /* Table font shrink */
+    .mf-table td, .mf-table th{font-size:12px!important;padding:10px 8px!important}
+  }
+
+  @media(max-width:400px){
+    .mf-hero{grid-template-columns:1fr}
+  }
+`
 
 // ════════════════════════════════════════════════════════════════════════════
 export default function MFPage() {
@@ -146,8 +295,14 @@ export default function MFPage() {
 
   const [sipForm, setSipForm] = useState({
     fund_name: '', isin: '', amc: '', category: 'core', sub_category: '',
-    sip_amount: '', sip_date: '1', start_date: '',
+    sip_amount: '', sip_date: '1', start_date: '', confirmed_nav: 0,
   })
+  const [fundSearch, setFundSearch]       = useState('')
+  const [fundResults, setFundResults]     = useState<any[]>([])
+  const [fundSearching, setFundSearching] = useState(false)
+  const [isinConfirmed, setIsinConfirmed] = useState(false)
+  const [navPreview, setNavPreview]       = useState<{ nav: number; date: string } | null>(null)
+  const fundSearchTimer                   = useRef<any>(null)
   const [lumpsumForm, setLumpsumForm] = useState({ fund_name: '', amount: '', nav: '', date: '', notes: '' })
   const [buyForm,  setBuyForm]  = useState({ amount: '', nav: '', date: new Date().toISOString().split('T')[0], notes: '' })
   const [sellForm, setSellForm] = useState({ units:  '', nav: '', date: new Date().toISOString().split('T')[0], notes: '' })
@@ -158,7 +313,6 @@ export default function MFPage() {
     setTimeout(() => setToast(t => ({ ...t, show: false })), 2800)
   }, [])
 
-  // ── Auth: get current user ────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUserId(session?.user?.id ?? null)
@@ -167,45 +321,34 @@ export default function MFPage() {
 
   useEffect(() => { if (userId) loadAll() }, [userId])
 
-  // ── Load all MF data, scoped to current user ──────────────────────────────
+  // ── Back navigation ────────────────────────────────────────────────────────
+  const goBack = () => { window.location.href = '/' }
+
+  // ── Load all MF data ──────────────────────────────────────────────────────
   async function loadAll() {
     if (!userId) return
     setLoading(true)
     try {
-      // ── Step 1: Check if user_id column exists in portfolio_funds ──────────
-      // We do a cheap probe query. If it returns a schema-cache error (42703),
-      // the column doesn't exist yet → fall back to unfiltered query so
-      // existing data still shows while the migration is pending.
-      const probe = await supabase
-        .from('portfolio_funds')
-        .select('user_id')
-        .limit(1)
-
-      // PGRST204 = column not found in schema cache  |  42703 = undefined column
+      const probe = await supabase.from('portfolio_funds').select('user_id').limit(1)
       const userIdColMissing =
         !!probe.error &&
         (probe.error.code === 'PGRST204' ||
           probe.error.message?.toLowerCase().includes('user_id') ||
           probe.error.message?.toLowerCase().includes('column'))
 
-      // ── Step 2: Load portfolio_funds ───────────────────────────────────────
       let pfQuery = supabase.from('portfolio_funds').select('*').order('category')
       if (!userIdColMissing) pfQuery = pfQuery.eq('user_id', userId) as any
-
       const { data: pfData, error: pfErr } = await pfQuery
       if (pfErr) console.error('portfolio_funds:', pfErr)
 
-      // ── Step 3: Load transactions ──────────────────────────────────────────
       let txQuery = supabase
         .from('transactions')
         .select('*, portfolio_funds(fund_name)')
         .order('invest_date', { ascending: false })
       if (!userIdColMissing) txQuery = txQuery.eq('user_id', userId) as any
-
       const { data: txData, error: txErr } = await txQuery
       if (txErr) console.error('transactions:', txErr)
 
-      // ── Step 4: nav_history scoped to this user's fund ISINs ──────────────
       const isins = (pfData || []).map((f: any) => f.isin).filter(Boolean)
       let navData: any[] = []
       if (isins.length) {
@@ -218,23 +361,19 @@ export default function MFPage() {
         navData = nd || []
       }
 
-      // ── Step 5: alerts ─────────────────────────────────────────────────────
       let alertQuery = supabase
         .from('alerts_log')
         .select('*')
         .order('triggered_at', { ascending: false })
         .limit(30)
       if (!userIdColMissing) alertQuery = alertQuery.eq('user_id', userId) as any
-
       const { data: alertData } = await alertQuery
 
-      // ── Guard: nothing to render ───────────────────────────────────────────
       if (!pfData?.length) {
         setFunds([]); setTx([]); setAlerts(alertData || [])
         setLoading(false); return
       }
 
-      // Most recent NAV per ISIN
       const navMap: Record<string, number> = {}
       for (const n of navData) {
         if (!navMap[n.isin]) navMap[n.isin] = n.nav
@@ -302,7 +441,7 @@ export default function MFPage() {
   }, [totalCurrent, totalSIP])
 
   const breakdown = useMemo(() => {
-    const m = ({ '3m': 3, '6m': 6, '1y': 12, '5y': 60 } as Record<string,number>)[projPeriod]
+    const m = ({ '3m': 3, '6m': 6, '1y': 12, '5y': 60 } as Record<string, number>)[projPeriod]
     const r = 13 / 12 / 100
     const corpusFV = totalCurrent * Math.pow(1 + r, m)
     const sipRaw   = totalSIP * m
@@ -322,7 +461,7 @@ export default function MFPage() {
     { icon: '🏆', label: '₹1.71 Cr',  target: 17100000 },
     { icon: '👑', label: '₹3.74 Cr',  target: 37400000 },
   ].map(t => {
-    const mBase = monthsToTarget(totalCurrent, totalSIP, t.target, 13)
+    const mBase   = monthsToTarget(totalCurrent, totalSIP, t.target, 13)
     const already = totalCurrent >= t.target
     return {
       ...t,
@@ -341,27 +480,73 @@ Active SIP Funds:
 ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('en-IN')}/mo | NAV ₹${f.current_nav} | Invested ${fmtINR(f.invested)} | Current ${fmtINR(f.current_value)}`).join('\n')}
 3M Base @13%: ${projData['3m']?.base || '—'}`
 
+  // ── Fund search (AMFI via mfapi.in) ──────────────────────────────────────
+  const searchFunds = useCallback(async (query: string) => {
+    const q = query.trim()
+    if (q.length < 2) { setFundResults([]); return }
+    setFundSearching(true)
+    try {
+      const res  = await fetch(`[api.mfapi.in](https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)})`)
+      const data = await res.json()
+      setFundResults((data || []).slice(0, 12))
+    } catch { setFundResults([]) }
+    setFundSearching(false)
+  }, [])
+
+  const onFundSearchChange = (val: string) => {
+    setFundSearch(val)
+    setIsinConfirmed(false)
+    setNavPreview(null)
+    setSipForm(f => ({ ...f, fund_name: val, isin: '', confirmed_nav: 0 }))
+    clearTimeout(fundSearchTimer.current)
+    fundSearchTimer.current = setTimeout(() => searchFunds(val), 300)
+  }
+
+  const onFundSelect = async (result: any) => {
+    const isin     = result.isinGrowth || result.isinDivReinvestment || ''
+    const fundName = result.schemeName || ''
+    const amc      = fundName.split(' ')[0] || ''
+    setFundSearch(fundName)
+    setFundResults([])
+    setSipForm(f => ({ ...f, fund_name: fundName, isin, amc, confirmed_nav: 0 }))
+    if (result.schemeCode) {
+      setFundSearching(true)
+      try {
+        const res  = await fetch(`[api.mfapi.in](https://api.mfapi.in/mf/${result.schemeCode})`)
+        const data = await res.json()
+        const nav  = Number(data?.data?.[0]?.nav || 0)
+        const date = data?.data?.[0]?.date || ''
+        setNavPreview({ nav, date })
+        setSipForm(f => ({ ...f, confirmed_nav: nav }))
+      } catch { setNavPreview(null) }
+      setFundSearching(false)
+    }
+    setIsinConfirmed(true)
+  }
+
+  const resetSipForm = () => {
+    setSipForm({ fund_name: '', isin: '', amc: '', category: 'core', sub_category: '', sip_amount: '', sip_date: '1', start_date: '', confirmed_nav: 0 })
+    setFundSearch(''); setFundResults([]); setIsinConfirmed(false); setNavPreview(null)
+  }
+
   // ── CRUD ──────────────────────────────────────────────────────────────────
   const addSIP = async () => {
-    if (!sipForm.fund_name || !sipForm.sip_amount) { showToast('Fund name and SIP amount required', false); return }
-    const sipPayload: Record<string,any> = {
-      fund_name:    sipForm.fund_name,
-      isin:         sipForm.isin,
-      amc:          sipForm.amc,
-      category:     sipForm.category,
-      sub_category: sipForm.sub_category,
-      sip_amount:   Number(sipForm.sip_amount),
-      sip_date:     Number(sipForm.sip_date),
-      start_date:   sipForm.start_date || null,
-      target_pct:   0,
-      is_active:    true,
+    if (!isinConfirmed)      { showToast('Please select a fund from the search results', false); return }
+    if (!sipForm.fund_name)  { showToast('Fund name required', false); return }
+    if (!sipForm.isin)       { showToast('Valid ISIN required', false); return }
+    if (!sipForm.sip_amount) { showToast('Enter monthly SIP amount', false); return }
+    const payload: Record<string, any> = {
+      fund_name: sipForm.fund_name, isin: sipForm.isin, amc: sipForm.amc,
+      category: sipForm.category, sub_category: sipForm.sub_category,
+      sip_amount: Number(sipForm.sip_amount), sip_date: Number(sipForm.sip_date),
+      start_date: sipForm.start_date || null, current_nav: sipForm.confirmed_nav || null,
+      target_pct: 0, is_active: true,
     }
-    if (userId) sipPayload.user_id = userId
-    const { error } = await supabase.from('portfolio_funds').insert(sipPayload)
+    if (userId) payload.user_id = userId
+    const { error } = await supabase.from('portfolio_funds').insert(payload)
     if (error) { showToast('Error: ' + error.message, false); return }
-    showToast('SIP fund added')
-    setSipForm({ fund_name:'', isin:'', amc:'', category:'core', sub_category:'', sip_amount:'', sip_date:'1', start_date:'' })
-    setModal(null); loadAll()
+    showToast(`${sipForm.fund_name} added`)
+    resetSipForm(); setModal(null); loadAll()
   }
 
   const addLumpsum = async () => {
@@ -370,1022 +555,991 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
     if (!fund) { showToast('Select a fund from the list', false); return }
     const amount = Number(lumpsumForm.amount)
     const nav    = Number(lumpsumForm.nav) || 0
-    const lumpPayload: Record<string,any> = {
-      fund_id:         fund.id,
-      type:            'lumpsum',
-      amount,
+    const payload: Record<string, any> = {
+      fund_id: fund.id, type: 'lumpsum', amount,
       nav_at_purchase: nav || null,
       units_allotted:  nav > 0 ? amount / nav : null,
       invest_date:     lumpsumForm.date || new Date().toISOString().split('T')[0],
       notes:           lumpsumForm.notes || null,
     }
-    if (userId) lumpPayload.user_id = userId
-    const { error } = await supabase.from('transactions').insert(lumpPayload)
+    if (userId) payload.user_id = userId
+    const { error } = await supabase.from('transactions').insert(payload)
     if (error) { showToast('Error: ' + error.message, false); return }
-    showToast(`Lumpsum ${fmtINR(amount)} saved`)
-    setLumpsumForm({ fund_name:'', amount:'', nav:'', date:'', notes:'' })
+    showToast('Lumpsum investment added')
+    setLumpsumForm({ fund_name: '', amount: '', nav: '', date: '', notes: '' })
     setModal(null); loadAll()
   }
 
-  const buyFund = async () => {
-    if (!selFund || !buyForm.amount) { showToast('Enter amount', false); return }
-    const amount = Number(buyForm.amount), nav = Number(buyForm.nav) || selFund.current_nav
-    const buyPayload: Record<string,any> = {
+  const recordBuy = async () => {
+    if (!selFund || !buyForm.amount) { showToast('Amount required', false); return }
+    const amount = Number(buyForm.amount), nav = Number(buyForm.nav) || 0
+    const payload: Record<string, any> = {
       fund_id: selFund.id, type: 'buy', amount,
-      nav_at_purchase: nav, units_allotted: nav > 0 ? amount / nav : 0,
-      invest_date: buyForm.date, notes: buyForm.notes || null,
+      nav_at_purchase: nav || null,
+      units_allotted:  nav > 0 ? amount / nav : null,
+      invest_date:     buyForm.date,
+      notes:           buyForm.notes || null,
     }
-    if (userId) buyPayload.user_id = userId
-    const { error } = await supabase.from('transactions').insert(buyPayload)
+    if (userId) payload.user_id = userId
+    const { error } = await supabase.from('transactions').insert(payload)
     if (error) { showToast('Error: ' + error.message, false); return }
-    showToast(`Bought ${fmtINR(amount)} of ${selFund.fund_name}`)
-    setModal(null); loadAll()
+    showToast('Buy transaction recorded')
+    setBuyForm({ amount: '', nav: '', date: new Date().toISOString().split('T')[0], notes: '' })
+    setModal(null); setSelFund(null); loadAll()
   }
 
-  const sellFund = async () => {
-    if (!selFund || !sellForm.units) { showToast('Enter units', false); return }
-    const units = Number(sellForm.units), nav = Number(sellForm.nav) || selFund.current_nav
-    if (units > selFund.units) { showToast('Insufficient units', false); return }
-    const sellPayload: Record<string,any> = {
-      fund_id: selFund.id, type: 'sell',
-      amount: units * nav, nav_at_purchase: nav, units_allotted: units,
-      invest_date: sellForm.date, notes: sellForm.notes || null,
+  const recordSell = async () => {
+    if (!selFund || !sellForm.units) { showToast('Units required', false); return }
+    const units = Number(sellForm.units), nav = Number(sellForm.nav) || 0
+    const payload: Record<string, any> = {
+      fund_id: selFund.id, type: 'sell', amount: units * nav,
+      nav_at_purchase: nav || null, units_allotted: units,
+      invest_date:     sellForm.date,
+      notes:           sellForm.notes || null,
     }
-    if (userId) sellPayload.user_id = userId
-    const { error } = await supabase.from('transactions').insert(sellPayload)
+    if (userId) payload.user_id = userId
+    const { error } = await supabase.from('transactions').insert(payload)
     if (error) { showToast('Error: ' + error.message, false); return }
-    showToast(`Sell placed — ${fmtINR(units * nav)}`)
-    setModal(null); loadAll()
+    showToast('Sell transaction recorded')
+    setSellForm({ units: '', nav: '', date: new Date().toISOString().split('T')[0], notes: '' })
+    setModal(null); setSelFund(null); loadAll()
   }
 
-  const deleteTx = async (id: string) => {
-    const { error } = await supabase.from('transactions').delete().eq('id', id)
-    if (error) { showToast('Error: ' + error.message, false); return }
-    showToast('Transaction deleted'); loadAll()
-  }
-
-  const updateFund = async () => {
+  const saveFundEdit = async () => {
     if (!selFund) return
-    const { invested: _i, current_value: _cv, units: _u, current_nav: _nav, color: _c, ...safeEdits } = editForm as any
-    const { error } = await supabase.from('portfolio_funds').update(safeEdits).eq('id', selFund.id)
+    const { error } = await supabase.from('portfolio_funds').update({
+      sip_amount:   Number(editForm.sip_amount ?? selFund.sip_amount),
+      sip_date:     Number(editForm.sip_date   ?? selFund.sip_date),
+      is_active:    editForm.is_active ?? selFund.is_active,
+      category:     editForm.category  ?? selFund.category,
+      sub_category: editForm.sub_category ?? selFund.sub_category,
+      current_nav:  Number(editForm.current_nav ?? selFund.current_nav) || null,
+    }).eq('id', selFund.id)
     if (error) { showToast('Error: ' + error.message, false); return }
-    showToast('Fund updated'); setModal(null); loadAll()
+    showToast('Fund updated')
+    setModal(null); setSelFund(null); loadAll()
   }
 
   const deleteFund = async () => {
     if (!selFund) return
-    await supabase.from('transactions').delete().eq('fund_id', selFund.id)
     const { error } = await supabase.from('portfolio_funds').delete().eq('id', selFund.id)
     if (error) { showToast('Error: ' + error.message, false); return }
-    showToast(`${selFund.fund_name} removed`); setModal(null); loadAll()
+    showToast('Fund removed')
+    setModal(null); setSelFund(null); loadAll()
   }
 
-  const toggleSIP = async (fund: Fund) => {
-    const { error } = await supabase.from('portfolio_funds')
-      .update({ is_active: !fund.is_active }).eq('id', fund.id)
-    if (error) { showToast('Error: ' + error.message, false); return }
-    showToast(!fund.is_active ? 'SIP resumed' : 'SIP paused'); loadAll()
-  }
-
-  const markRead = async (id: string) => {
-    await supabase.from('alerts_log').update({ is_read: true }).eq('id', id)
-    setAlerts(a => a.map(x => x.id === id ? { ...x, is_read: true } : x))
-  }
-
-  // ── AI Agent ──────────────────────────────────────────────────────────────
-  const PROMPTS: Record<AgentType, string> = {
-    weekly:     `Generate a WhatsApp-style weekly brief. Emojis, 10-12 bullet lines. Portfolio score, XIRR, each fund status, one specific action this week.\n\n${portfolioCtx}`,
-    projection: `Based on Indian market conditions ${new Date().toDateString()}, give realistic 3M and 6M projection. Which scenario is most likely? Be specific.\n\n${portfolioCtx}`,
-    alert:      `Check for alerts: 🔴 Critical | 🟡 Warning | 🟢 Opportunity. Pending exits, expense drags, sector risks. Max 2 lines each.\n\n${portfolioCtx}`,
-    advice:     `Give 3 highly specific actionable moves for this month. Exact fund names and ₹ amounts. Include tax tip, rebalancing action, deployment decision.\n\n${portfolioCtx}`,
-  }
-
-  const runAgent = useCallback(async (type: AgentType) => {
-    setAgentBusy(true)
-    setAgentOut('Analysing your portfolio…')
+  const runAgent = async (type: AgentType) => {
+    setAgentBusy(true); setAgentOut('')
     try {
-      const res  = await fetch('/api/agent', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customPrompt: PROMPTS[type] }),
+      const prompts: Record<AgentType, string> = {
+        weekly:     `You are a mutual fund advisor. Give a concise weekly portfolio review:\n\n${portfolioCtx}`,
+        projection: `You are a mutual fund advisor. Analyze projections and give actionable advice:\n\n${portfolioCtx}`,
+        alert:      `You are a mutual fund advisor. Identify risk alerts and opportunities:\n\n${portfolioCtx}`,
+        advice:     `You are a mutual fund advisor. Suggest portfolio rebalancing and next steps:\n\n${portfolioCtx}`,
+      }
+      const res = await fetch('/api/mf-agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: prompts[type] }),
       })
       const data = await res.json()
-      setAgentOut(data.result || 'No response.')
-      // Safe insert: only include user_id when migration has been run
-      const alertPayload: Record<string,any> = {
-        alert_type:   type === 'weekly' ? 'weekly_brief' : type,
-        fund_name:    'AI_AGENT',
-        message:      (data.result || '').slice(0, 500),
-        triggered_at: new Date().toISOString(),
-        is_read:      false,
-      }
-      if (userId) alertPayload.user_id = userId
-      await supabase.from('alerts_log').insert(alertPayload).then(({ error }) => {
-        if (error) console.warn('alert insert (user_id may not exist yet):', error.message)
-      })
-      loadAll()
-    } catch { setAgentOut('⚠️ Could not connect to AI agent.') }
+      setAgentOut(data.result || data.error || 'No response')
+    } catch (e) { setAgentOut('Agent unavailable. Please try again.') }
     setAgentBusy(false)
-  }, [portfolioCtx, userId])
+  }
 
-  // ── Filtered txns ─────────────────────────────────────────────────────────
-  const filteredTx = transactions.filter(t => {
-    if (txFilter !== 'all' && t.type !== txFilter) return false
-    if (search && !t.fund_name.toLowerCase().includes(search.toLowerCase())) return false
-    return true
-  })
+  // ── Filtered transactions ─────────────────────────────────────────────────
+  const filteredTx = useMemo(() => {
+    return transactions.filter(t => {
+      const matchType = txFilter === 'all' || t.type === txFilter
+      const matchSrch = !search || t.fund_name.toLowerCase().includes(search.toLowerCase())
+      return matchType && matchSrch
+    })
+  }, [transactions, txFilter, search])
 
-  const actionAlerts = alerts
-    .filter(a => ['weekly_brief','weekly','projection','alert','advice','custom'].includes(a.alert_type) && !a.is_read)
-    .slice(0, 4)
-  const unreadCount = alerts.filter(a => !a.is_read).length
-
-  const alertTitle = (a: Alert) => ({
-    weekly_brief: '📊 Weekly Brief', weekly: '📊 Weekly Brief',
-    projection: '📅 Projection', alert: '⚡ Alert', advice: '💡 Advice', custom: '🤖 AI Insight',
-  }[a.alert_type] || `🔔 ${a.alert_type}`)
-
-  // ── Skeleton ──────────────────────────────────────────────────────────────
-  const Sk = ({ h = 14, w = '100%' }: { h?: number; w?: string | number }) => (
-    <div style={{
-      height: h, width: w,
-      background: 'linear-gradient(90deg,#E8ECF2 25%,#F5F7FA 50%,#E8ECF2 75%)',
-      backgroundSize: '200% 100%', animation: 'skshimmer 1.5s infinite', borderRadius: 6,
-    }} />
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{ minHeight: '100vh', background: '#F1F5FB', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+      <style>{MF_CSS}</style>
+      <div style={{ width: 48, height: 48, background: 'linear-gradient(135deg,#7C3AED,#A78BFA)', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 800, color: 'white' }}>📊</div>
+      <div style={{ fontSize: 14, color: '#9CA3AF' }}>Loading portfolio…</div>
+      <div style={{ width: 200, height: 3, background: '#E5E7EB', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ width: '60%', height: '100%', background: 'linear-gradient(90deg,#7C3AED,#A78BFA)', borderRadius: 2, animation: 'loadBar 1.2s ease-in-out infinite' }} />
+      </div>
+    </div>
   )
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RENDER  (no topnav / bnav — consumed inside NW Portfolio's layout)
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Tab content ───────────────────────────────────────────────────────────
+  const renderTab = () => {
+    switch (tab) {
+      case 'dashboard':    return <DashboardTab funds={funds} totalInvested={totalInvested} totalCurrent={totalCurrent} totalGain={totalGain} gainPct={gainPct} xirr={xirr} totalSIP={totalSIP} activeFunds={activeFunds} bestReturn={bestReturn} onBuy={(f: Fund) => { setSelFund(f); setModal('buy') }} onSell={(f: Fund) => { setSelFund(f); setModal('sell') }} onEdit={(f: Fund) => { setSelFund(f); setEditForm({ ...f }); setModal('edit-fund') }} />
+      case 'sip':          return <SIPTab funds={funds.filter(f => f.sip_amount > 0)} onEdit={(f: Fund) => { setSelFund(f); setEditForm({ ...f }); setModal('edit-fund') }} onDelete={(f: Fund) => { setSelFund(f); setModal('delete') }} onBuy={(f: Fund) => { setSelFund(f); setModal('buy') }} />
+      case 'lumpsum':      return <LumpsumTab funds={funds} transactions={transactions.filter(t => t.type === 'lumpsum')} />
+      case 'transactions': return <TransactionsTab transactions={filteredTx} txFilter={txFilter} setTxFilter={setTxFilter} search={search} setSearch={setSearch} />
+      case 'projections':  return <ProjectionsTab projData={projData} projPeriod={projPeriod} setProjP={setProjP} breakdown={breakdown} milestones={milestones} totalCurrent={totalCurrent} totalSIP={totalSIP} />
+      case 'agent':        return <AgentTab agentOut={agentOut} agentBusy={agentBusy} runAgent={runAgent} alerts={alerts} />
+      default:             return null
+    }
+  }
+
   return (
-    <div style={{ fontFamily: "'DM Sans',-apple-system,sans-serif", color: C.text }}>
-      <style>{`
-        @keyframes skshimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
-        @keyframes mfFadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        .mf-fade{animation:mfFadeUp .22s ease both}
-        .mf-hover:hover{background:#F8FAFC!important}
-        .mf-tab-btn:hover{background:#F5F3FF!important}
-      `}</style>
+    <div className="mf-shell">
+      <style>{MF_CSS}</style>
 
-      {/* ── Page header identical to other NW modules ── */}
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20 }}>
-        <div>
-          <h2 style={{ fontFamily:"'Syne',sans-serif", fontSize: 22, fontWeight: 700, color: C.text, marginBottom: 4 }}>
-            📈 Mutual Funds Portfolio
-          </h2>
-          <div style={{ fontSize: 13, color: C.text4 }}>
-            {loading ? '…' : `${funds.length} funds · ${activeFunds.length} active SIPs · XIRR ${fmtPct(xirr)}`}
+      {/* ── Top Header ─────────────────────────────────────────────────── */}
+      <header className="mf-header">
+        <div className="mf-header-left">
+          {/* Back button */}
+          <button className="mf-back-btn" onClick={goBack} title="Back to Dashboard">
+            <span style={{ fontSize: 16 }}>←</span>
+            <span>Dashboard</span>
+          </button>
+
+          {/* Page identity */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg,#7C3AED,#A78BFA)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>📊</div>
+            <div>
+              <div className="mf-header-title" style={{ fontSize: 16, fontWeight: 700, color: C.text, lineHeight: 1.1, fontFamily: "'Syne',sans-serif" }}>Mutual Funds</div>
+              <div className="mf-header-subtitle" style={{ fontSize: 11, color: C.text3 }}>Portfolio Manager</div>
+            </div>
           </div>
         </div>
-        <div style={{ display:'flex', gap: 10, alignItems:'center' }}>
-          {unreadCount > 0 && (
-            <div style={{ background: C.red, color:'white', borderRadius:'50%', width:22, height:22,
-              fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              {unreadCount}
-            </div>
-          )}
-          <button onClick={loadAll} style={{ padding:'9px 16px', background: C.mf.light, color: C.mf.main,
-            border:`1px solid #DDD6FE`, borderRadius:9, fontSize:13, cursor:'pointer', fontWeight:500 }}>
-            ↻ Refresh NAV
+
+        {/* Right actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => { resetSipForm(); setModal('add-sip') }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: C.mf.main, color: 'white', border: 'none', borderRadius: 10, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            <span>+</span>
+            <span className="mf-header-subtitle" style={{ color: 'white', fontSize: 13 }}>Add SIP</span>
+          </button>
+          <button
+            onClick={() => setModal('add-lumpsum')}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#F5F3FF', color: C.mf.main, border: `1px solid ${C.mf.light}`, borderRadius: 10, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            <span>💰</span>
+            <span className="mf-header-subtitle" style={{ color: C.mf.main, fontSize: 13 }}>Lumpsum</span>
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* ── MF Hero banner (purple, matches NW module banners) ── */}
-      <div style={{ background:'linear-gradient(135deg,#5B21B6,#7C3AED)', borderRadius:16, padding:'20px 28px',
-        marginBottom:20, color:'white', display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:20 }}>
-        {[
-          { l:'Portfolio Value', v: fmtINR(totalCurrent),    s: fmtFull(totalCurrent) },
-          { l:'Total Invested',  v: fmtINR(totalInvested),   s: fmtFull(totalInvested) },
-          { l:'Total Gains',     v: (totalGain>=0?'+':'')+fmtINR(totalGain), s: `${totalInvested>0?((totalGain/totalInvested)*100).toFixed(2):'0.00'}% return` },
-          { l:'Monthly SIP',     v: `₹${totalSIP.toLocaleString('en-IN')}`, s: `${activeFunds.length} active SIPs` },
-        ].map(s => (
-          <div key={s.l}>
-            <div style={{ fontSize:10, opacity:.65, textTransform:'uppercase', letterSpacing:'1px', marginBottom:6 }}>{s.l}</div>
-            <div style={{ fontFamily:"'Syne',sans-serif", fontSize:22, fontWeight:700 }}>{loading ? '…' : s.v}</div>
-            <div style={{ fontSize:11, opacity:.6, marginTop:3 }}>{s.s}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Sub-tab nav (styled like NW sidebar buttons but horizontal) ── */}
-      <div style={{ display:'flex', gap:6, marginBottom:20, flexWrap:'wrap', background:'white',
-        borderRadius:12, padding:6, border:`1px solid ${C.border}` }}>
+      {/* ── Desktop Tab Bar ─────────────────────────────────────────────── */}
+      <nav className="mf-tabs">
         {TABS.map(t => (
-          <button key={t.id} className="mf-tab-btn"
+          <button
+            key={t.id}
+            className={`mf-tab ${tab === t.id ? 'active' : ''}`}
             onClick={() => setTab(t.id as Tab)}
-            style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:9,
-              border:'none', cursor:'pointer', fontSize:12, fontWeight: tab===t.id ? 600 : 400,
-              background: tab===t.id ? C.mf.main : 'transparent',
-              color: tab===t.id ? 'white' : C.text3, transition:'.15s' }}>
-            <span>{t.icon}</span><span>{t.label}</span>
-            {tab===t.id && <div style={{ width:4, height:4, borderRadius:'50%', background:'rgba(255,255,255,.6)' }} />}
+          >
+            <span>{t.icon}</span>
+            <span>{t.label}</span>
           </button>
         ))}
-      </div>
+      </nav>
 
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* DASHBOARD TAB                                                      */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {tab === 'dashboard' && (
-        <div className="mf-fade">
-          {/* Quick stats — matches NW Overview card style */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:16 }}>
-            {[
-              { l:'Total Invested',   v: fmtINR(totalInvested), c: C.text,     bg:'#F8FAFC' },
-              { l:'Total Returns',    v: fmtINR(totalGain),     c: C.green,    bg:'#ECFDF5' },
-              { l:'3M Target (Base)', v: projData['3m']?.base || '—', c: C.orange, bg:'#FFFBEB' },
-              { l:'XIRR',             v: fmtPct(xirr),          c: C.mf.main,  bg: C.mf.light },
-            ].map(s => (
-              <div key={s.l} style={{ background:'white', borderRadius:14, padding:'16px 18px',
-                border:`1px solid ${C.border}` }}>
-                <div style={{ fontSize:11, color: C.text4, marginBottom:6 }}>{s.l}</div>
-                <div style={{ fontFamily:"'Syne',sans-serif", fontSize:20, fontWeight:700, color:s.c }}>
-                  {loading ? '…' : s.v}
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* ── Page Body ───────────────────────────────────────────────────── */}
+      <main className="mf-body">
+        {renderTab()}
+      </main>
 
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-            {/* Live Allocation */}
-            <div style={{ background:'white', borderRadius:16, padding:20, border:`1px solid ${C.border}` }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-                <div style={{ fontSize:14, fontWeight:600, color: C.text }}>Live Allocation</div>
-                <div style={{ fontSize:12, color: C.text4 }}>{funds.length} funds</div>
-              </div>
-              {loading
-                ? [1,2,3,4].map(i => <div key={i} style={{ marginBottom:10 }}><Sk h={8} /></div>)
-                : funds.map(f => {
-                    const pct = totalCurrent > 0 ? (f.current_value / totalCurrent) * 100 : 0
-                    return (
-                      <div key={f.id} style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-                        <div style={{ width:8, height:8, borderRadius:'50%', background:f.color, flexShrink:0 }} />
-                        <div style={{ fontSize:11, color:C.text2, width:140, flexShrink:0, overflow:'hidden',
-                          textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                          {f.fund_name.replace(' Direct','').replace(' Fund','').split(' ').slice(0,3).join(' ')}
-                        </div>
-                        <div style={{ flex:1, height:6, background:'#F3F4F6', borderRadius:3, overflow:'hidden' }}>
-                          <div style={{ width:`${pct}%`, height:'100%', background:f.color, borderRadius:3, transition:'width .8s' }} />
-                        </div>
-                        <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, color:C.text4, width:36, textAlign:'right' }}>{pct.toFixed(1)}%</div>
-                        <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:10, color:C.text2, width:60, textAlign:'right' }}>{fmtINR(f.current_value)}</div>
-                      </div>
-                    )
-                  })
-              }
-            </div>
+      {/* ── Mobile Bottom Nav ───────────────────────────────────────────── */}
+      <nav className="mf-bottom-nav">
+        {/* Back item */}
+        <button className="mf-bottom-nav-item" onClick={goBack} title="Dashboard">
+          <span className="nav-icon">🏠</span>
+          <span>Home</span>
+        </button>
+        {TABS.map(t => (
+          <button
+            key={t.id}
+            className={`mf-bottom-nav-item ${tab === t.id ? 'active' : ''}`}
+            onClick={() => setTab(t.id as Tab)}
+          >
+            <span className="nav-icon">{t.icon}</span>
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </nav>
 
-            {/* Action Centre */}
-            <div style={{ background:'white', borderRadius:16, padding:20, border:`1px solid ${C.border}` }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-                <div style={{ fontSize:14, fontWeight:600, color:C.text }}>Action Centre</div>
-                <button onClick={loadAll} style={{ fontSize:11, padding:'5px 12px', background:'#F5F3FF',
-                  color:C.mf.main, border:`1px solid #DDD6FE`, borderRadius:7, cursor:'pointer', fontWeight:500 }}>
-                  ↻ Refresh
-                </button>
-              </div>
-              {loading ? (
-                [1,2,3].map(i => <div key={i} style={{ marginBottom:10 }}><Sk h={56} /></div>)
-              ) : actionAlerts.length === 0 ? (
-                <div style={{ padding:'20px 0', textAlign:'center', color:C.text4, fontSize:13 }}>
-                  <div style={{ fontSize:28, marginBottom:8 }}>🤖</div>
-                  No AI recommendations yet.<br />
-                  Run <strong>AI Advisor → Check Alerts</strong>
-                </div>
-              ) : actionAlerts.map(a => (
-                <div key={a.id} onClick={() => markRead(a.id)}
-                  style={{ padding:'12px 14px', borderRadius:10, display:'flex', gap:10, alignItems:'flex-start',
-                    marginBottom:8, border:`1px solid ${C.border}`, background:'#F8FAFC', cursor:'pointer' }}>
-                  <div style={{ fontSize:15, flexShrink:0 }}>
-                    {{ critical:'⚡', alert:'⚡', advice:'💡', info:'📊' }[a.alert_type] || '🔔'}
-                  </div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontSize:12, fontWeight:600, color:C.text, marginBottom:2 }}>{alertTitle(a)}</div>
-                    <div style={{ fontSize:11, color:C.text3, lineHeight:1.6 }}>{a.message.slice(0,120)}…</div>
-                    <div style={{ fontSize:10, color:C.text4, marginTop:3 }}>
-                      {new Date(a.triggered_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* SIP FUNDS TAB                                                      */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {tab === 'sip' && (
-        <div className="mf-fade">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-            <div>
-              <div style={{ fontSize:16, fontWeight:600, color:C.text }}>SIP Portfolio</div>
-              <div style={{ fontSize:12, color:C.text4, marginTop:2 }}>{activeFunds.length} active · ₹{totalSIP.toLocaleString('en-IN')}/month</div>
-            </div>
-            <button onClick={() => setModal('add-sip')} style={{ background:C.mf.main, color:'white',
-              border:'none', borderRadius:10, padding:'10px 20px', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-              + Add SIP
-            </button>
-          </div>
-
-          {loading
-            ? [1,2,3].map(i => <div key={i} style={{ marginBottom:10 }}><Sk h={100} /></div>)
-            : (['core','growth','satellite'] as const).map(cat => {
-                const cf = funds.filter(f => f.category === cat)
-                if (!cf.length) return null
-                const ci = cf.reduce((s,f) => s+f.invested, 0)
-                const cc = cf.reduce((s,f) => s+f.current_value, 0)
-                const cg = ci > 0 ? ((cc-ci)/ci)*100 : 0
-                return (
-                  <div key={cat}>
-                    {/* Category header */}
-                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
-                      margin:'16px 0 10px', padding:'8px 14px', background:'white',
-                      borderRadius:10, border:`1px solid ${C.border}` }}>
-                      <span style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:4,
-                        letterSpacing:'1.5px', background:CAT_BG[cat], color:CAT_COLOR[cat] }}>
-                        {cat.toUpperCase()}
-                      </span>
-                      <div style={{ display:'flex', gap:16, fontSize:13, fontWeight:500 }}>
-                        <span style={{ color:C.text2 }}>{fmtINR(cc)}</span>
-                        <span style={{ color: cg>=0?C.green:C.red, fontFamily:"'JetBrains Mono',monospace" }}>
-                          {fmtPct(cg)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {cf.map(f => {
-                      const ret = f.invested > 0 ? ((f.current_value-f.invested)/f.invested)*100 : 0
-                      return (
-                        <div key={f.id} className="mf-hover"
-                          style={{ background:'white', borderRadius:14, padding:'16px 18px',
-                            marginBottom:10, border:`1px solid ${C.border}` }}>
-                          {/* Top row */}
-                          <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom:14 }}>
-                            <div style={{ width:4, height:44, borderRadius:2, background:f.color, flexShrink:0, marginTop:2 }} />
-                            <div style={{ flex:1 }}>
-                              <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:5 }}>{f.fund_name}</div>
-                              <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                                <span style={{ fontSize:11, color:C.text4 }}>{f.amc || f.category}</span>
-                                {f.sub_category && (
-                                  <span style={{ fontSize:10, background:'#EFF6FF', color:C.blue,
-                                    padding:'2px 7px', borderRadius:4, fontWeight:500 }}>{f.sub_category}</span>
-                                )}
-                                <span style={{ fontSize:10, padding:'2px 7px', borderRadius:4, fontWeight:500,
-                                  background: f.is_active&&f.sip_amount>0?'#ECFDF5':'#FFFBEB',
-                                  color: f.is_active&&f.sip_amount>0?C.green:C.orange }}>
-                                  {f.sip_amount>0 ? (f.is_active?'SIP Active':'SIP Paused') : 'No SIP'}
-                                </span>
-                              </div>
-                            </div>
-                            <div style={{ textAlign:'right' }}>
-                              <div style={{ fontSize:16, fontWeight:700, fontFamily:"'JetBrains Mono',monospace",
-                                color: ret>=0?C.green:C.red }}>{fmtPct(ret)}</div>
-                              <div style={{ fontSize:11, color:C.text4, fontFamily:"'JetBrains Mono',monospace", marginTop:2 }}>
-                                {fmtINR(Math.abs(f.current_value - f.invested))}
-                              </div>
-                            </div>
-                          </div>
-                          {/* Stats row */}
-                          <div style={{ display:'flex', gap:0, padding:'10px 0', borderTop:`1px solid ${C.border}`,
-                            borderBottom:`1px solid ${C.border}`, marginBottom:12, overflowX:'auto' }}>
-                            {[
-                              f.sip_amount>0 && { l:'SIP/Month', v:`₹${f.sip_amount.toLocaleString('en-IN')}` },
-                              { l:'Invested',  v: fmtINR(f.invested) },
-                              { l:'Current',   v: fmtINR(f.current_value) },
-                              { l:'Units',     v: f.units.toFixed(3) },
-                              { l:'NAV',       v: `₹${f.current_nav}` },
-                            ].filter(Boolean).map((s: any) => (
-                              <div key={s.l} style={{ flex:1, textAlign:'center', borderRight:`1px solid ${C.border}`,
-                                minWidth:70, padding:'0 6px' }}>
-                                <div style={{ fontSize:9, color:C.text4, textTransform:'uppercase',
-                                  letterSpacing:'.8px', marginBottom:4, fontFamily:"'JetBrains Mono',monospace" }}>{s.l}</div>
-                                <div style={{ fontSize:12, fontWeight:500, fontFamily:"'JetBrains Mono',monospace",
-                                  color:C.text2 }}>{s.v}</div>
-                              </div>
-                            ))}
-                          </div>
-                          {/* Actions */}
-                          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-                            {[
-                              { l:'+ Buy',   cl:{ background:'#ECFDF5', color:C.green },   onClick:()=>{ setSelFund(f); setBuyForm({ amount:'', nav:String(f.current_nav), date:new Date().toISOString().split('T')[0], notes:'' }); setModal('buy') } },
-                              { l:'− Sell',  cl:{ background:'#FFF0F5', color:C.red },     onClick:()=>{ setSelFund(f); setSellForm({ units:'', nav:String(f.current_nav), date:new Date().toISOString().split('T')[0], notes:'' }); setModal('sell') } },
-                              { l:'✏️ Edit', cl:{ background:'#EFF6FF', color:C.blue },    onClick:()=>{ setSelFund(f); setEditForm({ sip_amount:f.sip_amount, sip_date:f.sip_date, current_nav:f.current_nav, is_active:f.is_active, category:f.category, sub_category:f.sub_category }); setModal('edit-fund') } },
-                              f.sip_amount>0 && { l: f.is_active?'⏸ Pause':'▶ Resume', cl:{ background:'#F9FAFB', color:C.text2 }, onClick:()=>toggleSIP(f) },
-                              { l:'🗑',       cl:{ background:'#F9FAFB', color:C.text4 },  onClick:()=>{ setSelFund(f); setModal('delete') } },
-                            ].filter(Boolean).map((a:any, i) => (
-                              <button key={i} onClick={a.onClick}
-                                style={{ ...a.cl, fontSize:12, fontWeight:500, padding:'5px 14px',
-                                  borderRadius:7, cursor:'pointer', border:`1px solid ${C.border}` }}>
-                                {a.l}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })
-          }
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* LUMPSUM TAB                                                        */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {tab === 'lumpsum' && (
-        <div className="mf-fade">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-            <div>
-              <div style={{ fontSize:16, fontWeight:600, color:C.text }}>Lumpsum Holdings</div>
-              <div style={{ fontSize:12, color:C.text4, marginTop:2 }}>{funds.length} positions</div>
-            </div>
-            <button onClick={() => setModal('add-lumpsum')} style={{ background:C.mf.main, color:'white',
-              border:'none', borderRadius:10, padding:'10px 20px', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-              + Add Lumpsum
-            </button>
-          </div>
-          {/* Summary cards */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:16 }}>
-            {[
-              { l:'Total Invested', v: fmtINR(totalInvested),                     c: C.text },
-              { l:'Current Value',  v: fmtINR(totalCurrent),                      c: C.mf.main },
-              { l:'Total Gain',     v: (totalGain>=0?'+':'')+fmtINR(totalGain),   c: totalGain>=0?C.green:C.red },
-              { l:'Best Return',    v: fmtPct(bestReturn),                         c: C.orange },
-            ].map(s => (
-              <div key={s.l} style={{ background:'white', borderRadius:12, padding:'14px 16px', border:`1px solid ${C.border}` }}>
-                <div style={{ fontSize:11, color:C.text4 }}>{s.l}</div>
-                <div style={{ fontFamily:"'Syne',sans-serif", fontSize:20, fontWeight:700, color:s.c, marginTop:4 }}>
-                  {loading ? '…' : s.v}
-                </div>
-              </div>
-            ))}
-          </div>
-          {/* Holdings table */}
-          <div style={{ background:'white', borderRadius:16, border:`1px solid ${C.border}`, overflow:'hidden', marginBottom:16 }}>
-            <div style={{ overflowX:'auto' }}>
-              <TableHeader cols={['Fund','AMC / Type','Invested','Current','Return','Action']}
-                widths="2.5fr 1.2fr 100px 100px 80px 180px" />
-              {loading
-                ? [1,2,3].map(i => <div key={i} style={{ padding:'12px 16px', borderBottom:`1px solid ${C.border}` }}><Sk h={12} /></div>)
-                : funds.length === 0
-                  ? <EmptyState msg="No holdings found." />
-                  : funds.map((f,i) => {
-                      const ret = f.invested > 0 ? ((f.current_value-f.invested)/f.invested)*100 : 0
-                      return (
-                        <div key={f.id} className="mf-hover"
-                          style={{ display:'grid', gridTemplateColumns:'2.5fr 1.2fr 100px 100px 80px 180px',
-                            padding:'11px 16px', borderBottom:i<funds.length-1?`1px solid ${C.border}`:'none',
-                            alignItems:'center', minWidth:640 }}>
-                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                            <div style={{ width:4, height:32, borderRadius:2, background:f.color, flexShrink:0 }} />
-                            <div style={{ fontSize:12, fontWeight:500, color:C.text }}>{f.fund_name}</div>
-                          </div>
-                          <div style={{ fontSize:11, color:C.text4 }}>
-                            <div>{f.amc || '—'}</div>
-                            <div style={{ fontSize:10, marginTop:2 }}>{f.category}{f.sip_amount>0?` · SIP ₹${f.sip_amount.toLocaleString('en-IN')}/mo`:''}</div>
-                          </div>
-                          <Mono>{fmtINR(f.invested)}</Mono>
-                          <Mono style={{ color:C.mf.main, fontWeight:600 }}>{fmtINR(f.current_value)}</Mono>
-                          <Mono style={{ color: ret>=0?C.green:C.red, fontWeight:600 }}>{fmtPct(ret)}</Mono>
-                          <div style={{ display:'flex', gap:4 }}>
-                            <ActionBtn color={C.green} bg="#ECFDF5" onClick={()=>{ setSelFund(f); setBuyForm({ amount:'', nav:String(f.current_nav), date:new Date().toISOString().split('T')[0], notes:'' }); setModal('buy') }}>Buy</ActionBtn>
-                            <ActionBtn color={C.red}   bg="#FFF0F5" onClick={()=>{ setSelFund(f); setSellForm({ units:'', nav:String(f.current_nav), date:new Date().toISOString().split('T')[0], notes:'' }); setModal('sell') }}>Sell</ActionBtn>
-                          </div>
-                        </div>
-                      )
-                    })
-              }
-            </div>
-          </div>
-          {/* Lumpsum txns */}
-          <TxTable label="Lumpsum Transactions" txns={transactions.filter(t=>t.type==='lumpsum')} onDelete={deleteTx} loading={loading} />
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* TRANSACTIONS TAB                                                   */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {tab === 'transactions' && (
-        <div className="mf-fade">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-            <div>
-              <div style={{ fontSize:16, fontWeight:600, color:C.text }}>All Transactions</div>
-              <div style={{ fontSize:12, color:C.text4, marginTop:2 }}>{transactions.length} total</div>
-            </div>
-            <button onClick={() => setModal('add-lumpsum')} style={{ background:C.mf.main, color:'white',
-              border:'none', borderRadius:10, padding:'10px 20px', fontSize:13, fontWeight:600, cursor:'pointer' }}>
-              + New
-            </button>
-          </div>
-          {/* Filters */}
-          <div style={{ display:'flex', gap:10, marginBottom:14, flexWrap:'wrap', alignItems:'center' }}>
-            <input placeholder="Search fund…" value={search} onChange={e=>setSearch(e.target.value)}
-              style={{ ...INP, flex:1, minWidth:180 }} />
-            <div style={{ display:'flex', gap:4 }}>
-              {['all','sip','lumpsum','buy','sell'].map(f => (
-                <button key={f} onClick={() => setTxFilter(f)}
-                  style={{ fontSize:11, padding:'6px 12px', borderRadius:6, cursor:'pointer', fontWeight:500,
-                    border:`1px solid ${txFilter===f?C.mf.main:C.border}`,
-                    background: txFilter===f?C.mf.main:'white',
-                    color: txFilter===f?'white':C.text3 }}>
-                  {f.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
-          <TxTable label="" txns={filteredTx} onDelete={deleteTx} loading={loading} showEmpty />
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* PROJECTIONS TAB                                                    */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {tab === 'projections' && (
-        <div className="mf-fade">
-          <div style={{ fontSize:16, fontWeight:600, color:C.text, marginBottom:16 }}>Wealth Projections</div>
-          {/* Period toggle */}
-          <div style={{ display:'flex', gap:8, marginBottom:20, flexWrap:'wrap' }}>
-            {(['3m','6m','1y','5y'] as ProjPeriod[]).map(p => (
-              <button key={p} onClick={() => setProjP(p)}
-                style={{ fontSize:13, fontWeight:500, padding:'8px 20px', borderRadius:8, cursor:'pointer',
-                  border:`1px solid ${projPeriod===p?C.mf.main:C.border}`,
-                  background: projPeriod===p?C.mf.main:'white',
-                  color: projPeriod===p?'white':C.text3 }}>
-                {{'3m':'3 Months','6m':'6 Months','1y':'1 Year','5y':'5 Years'}[p]}
-              </button>
-            ))}
-          </div>
-          {/* Scenario cards */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:20 }}>
-            {[
-              { l:'Bear Case', k:'bear', xirr:'10%', c:C.red,    desc:'Global slowdown', active:false },
-              { l:'Base Case', k:'base', xirr:'13%', c:C.orange, desc:'India story intact', active:true },
-              { l:'Bull Case', k:'bull', xirr:'16%', c:C.green,  desc:'Extended bull run', active:false },
-            ].map(s => (
-              <div key={s.k} style={{ background:'white', border:`${s.active?'2px':'1px'} solid ${s.active?C.mf.main:C.border}`,
-                borderRadius:14, padding:20, textAlign:'center',
-                boxShadow: s.active?`0 0 0 3px ${C.mf.light}`:undefined }}>
-                <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'1px',
-                  color:s.c, marginBottom:4 }}>{s.l}</div>
-                <div style={{ fontSize:11, color:C.text4, marginBottom:12, fontFamily:"'JetBrains Mono',monospace" }}>@ {s.xirr} XIRR</div>
-                <div style={{ fontFamily:"'Syne',sans-serif", fontSize:26, fontWeight:700, color:s.c, marginBottom:8 }}>
-                  {loading ? '…' : projData[projPeriod]?.[s.k as 'bear'|'base'|'bull'] || '—'}
-                </div>
-                <div style={{ fontSize:11, color:C.text4 }}>{s.desc}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
-            {/* Breakdown */}
-            <div style={{ background:'white', borderRadius:16, padding:20, border:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:4 }}>Component Breakdown</div>
-              <div style={{ fontSize:11, color:C.text4, marginBottom:16 }}>Base @13% XIRR</div>
-              {[
-                { l:'Existing Corpus Growth', v:breakdown.corpus.val,   w:Math.min(95,breakdown.corpus.pct),   c:C.blue },
-                { l:'New SIP Contribution',   v:breakdown.sipContr.val, w:Math.min(95,breakdown.sipContr.pct), c:C.green },
-                { l:'SIP Market Growth',      v:breakdown.sipGrow.val,  w:Math.min(95,breakdown.sipGrow.pct),  c:C.orange },
-              ].map(b => (
-                <div key={b.l} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0',
-                  borderBottom:`1px solid ${C.border}` }}>
-                  <div style={{ fontSize:12, color:C.text2, width:180, flexShrink:0 }}>{b.l}</div>
-                  <div style={{ flex:1, height:6, background:'#F3F4F6', borderRadius:3, overflow:'hidden' }}>
-                    <div style={{ width:`${b.w}%`, height:'100%', background:b.c, borderRadius:3, transition:'width .8s' }} />
-                  </div>
-                  <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, fontWeight:500,
-                    color:b.c, width:70, textAlign:'right' }}>{loading?'…':b.v}</div>
-                </div>
-              ))}
-            </div>
-            {/* Milestones */}
-            <div style={{ background:'white', borderRadius:16, padding:20, border:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:4 }}>Wealth Milestones</div>
-              <div style={{ fontSize:11, color:C.text4, marginBottom:16 }}>Base @13% XIRR</div>
-              {loading
-                ? [1,2,3,4,5].map(i => <div key={i} style={{ marginBottom:12 }}><Sk h={36} /></div>)
-                : milestones.map(m => (
-                    <div key={m.label} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0',
-                      borderBottom:`1px solid ${C.border}` }}>
-                      <div style={{ fontSize:18, flexShrink:0 }}>{m.icon}</div>
-                      <div>
-                        <div style={{ fontSize:13, fontWeight:500, color:C.text }}>{m.label}</div>
-                        <div style={{ fontSize:11, color:C.text4, marginTop:2,
-                          fontFamily:"'JetBrains Mono',monospace" }}>{m.date}</div>
-                      </div>
-                      <div style={{ marginLeft:'auto', fontSize:12, fontWeight:600, color:C.mf.main,
-                        fontFamily:"'JetBrains Mono',monospace", whiteSpace:'nowrap' }}>{m.range}</div>
-                    </div>
-                  ))
-              }
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* AI ADVISOR TAB                                                     */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {tab === 'agent' && (
-        <div className="mf-fade">
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
-            <div>
-              <div style={{ fontSize:16, fontWeight:600, color:C.text }}>AI Portfolio Advisor</div>
-              <div style={{ fontSize:12, color:C.text4, marginTop:2 }}>
-                Live context · {fmtINR(totalCurrent)} · {activeFunds.length} active funds
-              </div>
-            </div>
-            <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, color:C.green, fontWeight:500 }}>
-              <div style={{ width:8, height:8, borderRadius:'50%', background:C.green,
-                animation:'pulse 2s infinite' }} />Live
-              <style>{`@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.3)}}`}</style>
-            </div>
-          </div>
-
-          <div style={{ background:'white', borderRadius:16, padding:24, border:`1px solid ${C.border}`, marginBottom:16 }}>
-            {/* Agent header */}
-            <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:20 }}>
-              <div style={{ width:52, height:52, borderRadius:14, background:C.mf.light,
-                display:'flex', alignItems:'center', justifyContent:'center', fontSize:26 }}>🤖</div>
-              <div>
-                <div style={{ fontSize:15, fontWeight:600, color:C.text }}>KB Wealth Intelligence Agent</div>
-                <div style={{ fontSize:12, color:C.text4 }}>Powered by Claude · Live Supabase data</div>
-              </div>
-            </div>
-            {/* Output area */}
-            <div style={{ background:'#F8FAFC', border:`1px solid ${C.border}`, borderRadius:10,
-              padding:16, minHeight:140, marginBottom:16 }}>
-              {agentBusy ? (
-                <div style={{ display:'flex', alignItems:'center', gap:10, color:C.text4, fontSize:13 }}>
-                  <div style={{ width:16, height:16, border:`2px solid ${C.border}`, borderTopColor:C.mf.main,
-                    borderRadius:'50%', animation:'spin .8s linear infinite', flexShrink:0 }} />
-                  <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-                  Analysing your portfolio with live data…
-                </div>
-              ) : agentOut ? (
-                <pre style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:C.text2,
-                  lineHeight:1.8, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{agentOut}</pre>
-              ) : (
-                <div style={{ textAlign:'center', padding:20, color:C.text4 }}>
-                  <div style={{ fontSize:28, marginBottom:10 }}>💡</div>
-                  <div style={{ fontSize:14, fontWeight:600, marginBottom:6 }}>Ready to analyse your portfolio</div>
-                  <div style={{ fontSize:12, lineHeight:1.6 }}>
-                    Choose an action below. AI runs <strong>only when you click</strong>.
-                  </div>
-                </div>
-              )}
-            </div>
-            {/* Action buttons */}
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
-              {[
-                { type:'weekly'     as AgentType, l:'📊 Weekly Brief',       s:'Portfolio score + fund status' },
-                { type:'projection' as AgentType, l:'📅 Update Projections', s:'AI-adjusted 3M/6M forecast' },
-                { type:'alert'      as AgentType, l:'⚡ Check Alerts',       s:'Red flags, opportunities' },
-                { type:'advice'     as AgentType, l:'💡 Get Advice',         s:'Specific actions this month' },
-              ].map(a => (
-                <button key={a.type} disabled={agentBusy} onClick={() => runAgent(a.type)}
-                  style={{ background:'#F8FAFC', border:`1px solid ${C.border}`, borderRadius:10,
-                    padding:'12px 16px', cursor:'pointer', textAlign:'left', fontFamily:"'DM Sans',sans-serif",
-                    opacity: agentBusy ? .5 : 1 }}>
-                  <div style={{ fontSize:13, fontWeight:600, color:C.text, marginBottom:3 }}>{a.l}</div>
-                  <div style={{ fontSize:11, color:C.text4 }}>{a.s}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* History */}
-          {alerts.filter(a => a.alert_type !== 'nav_drop').length > 0 && (
-            <div style={{ background:'white', borderRadius:16, padding:20, border:`1px solid ${C.border}` }}>
-              <div style={{ fontSize:14, fontWeight:600, color:C.text, marginBottom:16 }}>AI Brief History</div>
-              {alerts.filter(a => a.alert_type !== 'nav_drop').slice(0,5).map(a => (
-                <div key={a.id} onClick={() => { setAgentOut(a.message); markRead(a.id) }}
-                  style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 0',
-                    borderBottom:`1px solid ${C.border}`, cursor:'pointer' }}>
-                  <div style={{ fontSize:18 }}>📋</div>
-                  <div>
-                    <div style={{ fontSize:13, fontWeight:500, color:C.text }}>{alertTitle(a)}</div>
-                    <div style={{ fontSize:11, color:C.text4, marginTop:2,
-                      fontFamily:"'JetBrains Mono',monospace" }}>
-                      {new Date(a.triggered_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}
-                    </div>
-                  </div>
-                  <div style={{ marginLeft:'auto', fontSize:11, color:a.is_read?C.text4:C.mf.main, fontWeight:500 }}>
-                    {a.is_read ? 'Read' : 'View'}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {/* MODALS                                                             */}
-      {/* ══════════════════════════════════════════════════════════════════ */}
-      {modal && (
-        <div onClick={e => { if(e.target===e.currentTarget) setModal(null) }}
-          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', zIndex:500,
-            display:'flex', alignItems:'center', justifyContent:'center', padding:20, backdropFilter:'blur(4px)' }}>
-          <div style={{ background:'white', borderRadius:20, width:'100%', maxWidth:520,
-            maxHeight:'85vh', overflowY:'auto', boxShadow:'0 30px 60px rgba(0,0,0,.3)' }}>
-
-            {/* ADD SIP */}
-            {modal === 'add-sip' && (
-              <Modal title="Add New SIP Fund" onClose={()=>setModal(null)}
-                onSave={addSIP} saveLabel="Add SIP Fund" accent={C.mf.main}>
-                <FormGrid>
-                  <FormRow full><label style={LBL}>Fund Name *</label>
-                    <input style={INP} placeholder="e.g. Quant Small Cap Fund Direct"
-                      value={sipForm.fund_name} onChange={e=>setSipForm(f=>({...f,fund_name:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>ISIN</label>
-                    <input style={INP} placeholder="INF…" value={sipForm.isin} onChange={e=>setSipForm(f=>({...f,isin:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>AMC</label>
-                    <input style={INP} placeholder="e.g. Quant MF" value={sipForm.amc} onChange={e=>setSipForm(f=>({...f,amc:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>Category *</label>
-                    <select style={INP} value={sipForm.category} onChange={e=>setSipForm(f=>({...f,category:e.target.value}))}>
-                      <option value="core">Core</option><option value="growth">Growth</option><option value="satellite">Satellite</option>
-                    </select></FormRow>
-                  <FormRow><label style={LBL}>Sub Category</label>
-                    <input style={INP} placeholder="Mid Cap, Index…" value={sipForm.sub_category} onChange={e=>setSipForm(f=>({...f,sub_category:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>Monthly SIP (₹) *</label>
-                    <input style={INP} type="number" placeholder="5000" value={sipForm.sip_amount} onChange={e=>setSipForm(f=>({...f,sip_amount:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>SIP Date</label>
-                    <input style={INP} type="number" min="1" max="28" value={sipForm.sip_date} onChange={e=>setSipForm(f=>({...f,sip_date:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>Start Date</label>
-                    <input style={INP} type="date" value={sipForm.start_date} onChange={e=>setSipForm(f=>({...f,start_date:e.target.value}))} /></FormRow>
-                </FormGrid>
-              </Modal>
-            )}
-
-            {/* ADD LUMPSUM */}
-            {modal === 'add-lumpsum' && (
-              <Modal title="Add Lumpsum Investment" onClose={()=>setModal(null)}
-                onSave={addLumpsum} saveLabel="Save to Supabase" accent={C.mf.main}>
-                <FormGrid>
-                  <FormRow full><label style={LBL}>Fund *</label>
-                    <select style={INP} value={lumpsumForm.fund_name} onChange={e=>setLumpsumForm(f=>({...f,fund_name:e.target.value}))}>
-                      <option value="">Select fund…</option>
-                      {funds.map(f=><option key={f.id} value={f.fund_name}>{f.fund_name}</option>)}
-                    </select></FormRow>
-                  <FormRow><label style={LBL}>Amount (₹) *</label>
-                    <input style={INP} type="number" placeholder="50000" value={lumpsumForm.amount} onChange={e=>setLumpsumForm(f=>({...f,amount:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>NAV at Purchase</label>
-                    <input style={INP} type="number" step="0.01" placeholder="85.42" value={lumpsumForm.nav} onChange={e=>setLumpsumForm(f=>({...f,nav:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>Date</label>
-                    <input style={INP} type="date" value={lumpsumForm.date} onChange={e=>setLumpsumForm(f=>({...f,date:e.target.value}))} /></FormRow>
-                  <FormRow full><label style={LBL}>Notes</label>
-                    <input style={INP} placeholder="Optional" value={lumpsumForm.notes} onChange={e=>setLumpsumForm(f=>({...f,notes:e.target.value}))} /></FormRow>
-                </FormGrid>
-                {lumpsumForm.amount && lumpsumForm.nav && (
-                  <CalcPreview label="Units to be allotted"
-                    val={(Number(lumpsumForm.amount)/Number(lumpsumForm.nav)).toFixed(3)} />
-                )}
-              </Modal>
-            )}
-
-            {/* BUY */}
-            {modal === 'buy' && selFund && (
-              <Modal title={`Buy — ${selFund.fund_name}`} onClose={()=>setModal(null)}
-                onSave={buyFund} saveLabel="Confirm Buy" accent={C.green}>
-                <div style={{ fontSize:12, color:C.text4, marginBottom:16 }}>Current NAV: ₹{selFund.current_nav}</div>
-                <FormGrid>
-                  <FormRow><label style={LBL}>Amount (₹) *</label>
-                    <input style={INP} type="number" placeholder="25000" value={buyForm.amount} onChange={e=>setBuyForm(f=>({...f,amount:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>NAV</label>
-                    <input style={INP} type="number" step="0.01" value={buyForm.nav} onChange={e=>setBuyForm(f=>({...f,nav:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>Date</label>
-                    <input style={INP} type="date" value={buyForm.date} onChange={e=>setBuyForm(f=>({...f,date:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>Notes</label>
-                    <input style={INP} placeholder="Optional" value={buyForm.notes} onChange={e=>setBuyForm(f=>({...f,notes:e.target.value}))} /></FormRow>
-                </FormGrid>
-                {buyForm.amount && buyForm.nav && (
-                  <CalcPreview label="Units to be allotted"
-                    val={(Number(buyForm.amount)/Number(buyForm.nav)).toFixed(3)} />
-                )}
-              </Modal>
-            )}
-
-            {/* SELL */}
-            {modal === 'sell' && selFund && (
-              <Modal title={`Sell — ${selFund.fund_name}`} onClose={()=>setModal(null)}
-                onSave={sellFund} saveLabel="Confirm Sell" accent={C.red}>
-                <div style={{ fontSize:12, color:C.text4, marginBottom:16 }}>
-                  Available: {selFund.units.toFixed(3)} units · NAV ₹{selFund.current_nav}
-                </div>
-                <FormGrid>
-                  <FormRow><label style={LBL}>Units to Sell *</label>
-                    <input style={INP} type="number" step="0.001" placeholder={`Max ${selFund.units.toFixed(3)}`}
-                      value={sellForm.units} onChange={e=>setSellForm(f=>({...f,units:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>NAV</label>
-                    <input style={INP} type="number" step="0.01" value={sellForm.nav} onChange={e=>setSellForm(f=>({...f,nav:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>Date</label>
-                    <input style={INP} type="date" value={sellForm.date} onChange={e=>setSellForm(f=>({...f,date:e.target.value}))} /></FormRow>
-                  <FormRow><label style={LBL}>Notes</label>
-                    <input style={INP} placeholder="Optional" value={sellForm.notes} onChange={e=>setSellForm(f=>({...f,notes:e.target.value}))} /></FormRow>
-                </FormGrid>
-                {sellForm.units && sellForm.nav && (
-                  <CalcPreview label="Redemption amount"
-                    val={fmtINR(Number(sellForm.units)*Number(sellForm.nav))} />
-                )}
-              </Modal>
-            )}
-
-            {/* EDIT FUND */}
-            {modal === 'edit-fund' && selFund && (
-              <Modal title={`Edit — ${selFund.fund_name}`} onClose={()=>setModal(null)}
-                onSave={updateFund} saveLabel="Save Changes" accent={C.mf.main}>
-                <FormGrid>
-                  <FormRow><label style={LBL}>SIP Amount (₹)</label>
-                    <input style={INP} type="number" value={editForm.sip_amount??''} onChange={e=>setEditForm(f=>({...f,sip_amount:Number(e.target.value)}))} /></FormRow>
-                  <FormRow><label style={LBL}>SIP Date</label>
-                    <input style={INP} type="number" min="1" max="28" value={editForm.sip_date??''} onChange={e=>setEditForm(f=>({...f,sip_date:Number(e.target.value)}))} /></FormRow>
-                  <FormRow><label style={LBL}>Category</label>
-                    <select style={INP} value={editForm.category??'core'} onChange={e=>setEditForm(f=>({...f,category:e.target.value as any}))}>
-                      <option value="core">Core</option><option value="growth">Growth</option><option value="satellite">Satellite</option>
-                    </select></FormRow>
-                  <FormRow><label style={LBL}>Sub Category</label>
-                    <input style={INP} value={editForm.sub_category??''} onChange={e=>setEditForm(f=>({...f,sub_category:e.target.value}))} /></FormRow>
-                </FormGrid>
-              </Modal>
-            )}
-
-            {/* DELETE FUND */}
-            {modal === 'delete' && selFund && (
-              <Modal title="Remove Fund" onClose={()=>setModal(null)}
-                onSave={deleteFund} saveLabel="Yes, Delete Permanently" accent={C.red}>
-                <div style={{ textAlign:'center', padding:'16px 0' }}>
-                  <div style={{ fontSize:40, marginBottom:12 }}>🗑️</div>
-                  <div style={{ fontSize:16, fontWeight:600, marginBottom:8 }}>Remove {selFund.fund_name}?</div>
-                  <div style={{ fontSize:13, color:C.text4, lineHeight:1.6 }}>
-                    This will permanently delete the fund and all its transactions from Supabase.
-                  </div>
-                </div>
-              </Modal>
-            )}
-
-          </div>
-        </div>
-      )}
-
-      {/* Toast */}
+      {/* ── Toast ───────────────────────────────────────────────────────── */}
       {toast.show && (
-        <div style={{ position:'fixed', bottom:28, right:28, zIndex:999,
-          background: toast.ok ? '#059669' : '#B45309',
-          color:'white', padding:'12px 20px', borderRadius:12, fontSize:13, fontWeight:600,
-          boxShadow:'0 8px 24px rgba(0,0,0,.2)' }}>
+        <div
+          className="mf-toast"
+          style={{ background: toast.ok ? '#059669' : '#E8195A', color: 'white' }}
+        >
           {toast.ok ? '✓' : '⚠️'} {toast.msg}
         </div>
       )}
+
+      {/* ── Modals ──────────────────────────────────────────────────────── */}
+      {modal && (
+        <div className="modal-overlay" onClick={e => { if (e.target === e.currentTarget) { setModal(null); setSelFund(null) } }}>
+          <div className="modal-box">
+
+            {/* Add SIP */}
+            {modal === 'add-sip' && (
+              <ModalShell title="Add SIP Fund" onClose={() => { setModal(null); resetSipForm() }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {/* Fund search */}
+                  <div style={{ position: 'relative' }}>
+                    <label style={LBL}>Search Fund *</label>
+                    <input
+                      value={fundSearch}
+                      onChange={e => onFundSearchChange(e.target.value)}
+                      placeholder="e.g. Parag Parikh Flexi Cap"
+                      style={{ ...INP, borderColor: isinConfirmed ? '#059669' : fundSearch && !isinConfirmed ? '#F59E0B' : C.border }}
+                    />
+                    {fundSearching && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 12, color: C.text3 }}>⏳</div>}
+                    {isinConfirmed && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 14, color: '#059669' }}>✓</div>}
+
+                    {/* Dropdown */}
+                    {fundResults.length > 0 && (
+                      <div className="fund-search-drop" style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.12)', zIndex: 100, maxHeight: 260, overflowY: 'auto' }}>
+                        {fundResults.map((r, i) => (
+                          <button key={i} onClick={() => onFundSelect(r)} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, color: C.text2, borderBottom: i < fundResults.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+                            <div style={{ fontWeight: 500 }}>{r.schemeName}</div>
+                            <div style={{ fontSize: 11, color: C.text4, marginTop: 2 }}>{r.isinGrowth || r.isinDivReinvestment}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {navPreview && (
+                    <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#166534' }}>
+                      Latest NAV: <strong>₹{navPreview.nav}</strong> as of {navPreview.date}
+                    </div>
+                  )}
+
+                  <div className="mf-grid-2" style={{ marginBottom: 0 }}>
+                    <div>
+                      <label style={LBL}>Monthly SIP (₹) *</label>
+                      <input type="number" value={sipForm.sip_amount} onChange={e => setSipForm(f => ({ ...f, sip_amount: e.target.value }))} placeholder="5000" style={INP} />
+                    </div>
+                    <div>
+                      <label style={LBL}>SIP Date</label>
+                      <select value={sipForm.sip_date} onChange={e => setSipForm(f => ({ ...f, sip_date: e.target.value }))} style={INP}>
+                        {[1, 5, 7, 10, 15, 20, 25, 28].map(d => <option key={d} value={d}>{d}th</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mf-grid-2" style={{ marginBottom: 0 }}>
+                    <div>
+                      <label style={LBL}>Category</label>
+                      <select value={sipForm.category} onChange={e => setSipForm(f => ({ ...f, category: e.target.value as any }))} style={INP}>
+                        <option value="core">Core</option>
+                        <option value="growth">Growth</option>
+                        <option value="satellite">Satellite</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={LBL}>Sub-category</label>
+                      <input value={sipForm.sub_category} onChange={e => setSipForm(f => ({ ...f, sub_category: e.target.value }))} placeholder="Flexi Cap" style={INP} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={LBL}>Start Date</label>
+                    <input type="date" value={sipForm.start_date} onChange={e => setSipForm(f => ({ ...f, start_date: e.target.value }))} style={INP} />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+                    <button onClick={() => { setModal(null); resetSipForm() }} style={{ flex: 1, padding: '11px', border: `1.5px solid ${C.border}`, borderRadius: 10, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.text2 }}>Cancel</button>
+                    <button onClick={addSIP} style={{ flex: 2, padding: '11px', background: C.mf.main, color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Add Fund</button>
+                  </div>
+                </div>
+              </ModalShell>
+            )}
+
+            {/* Add Lumpsum */}
+            {modal === 'add-lumpsum' && (
+              <ModalShell title="Add Lumpsum Investment" onClose={() => setModal(null)}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div>
+                    <label style={LBL}>Fund *</label>
+                    <select value={lumpsumForm.fund_name} onChange={e => setLumpsumForm(f => ({ ...f, fund_name: e.target.value }))} style={INP}>
+                      <option value="">Select fund…</option>
+                      {funds.map(f => <option key={f.id} value={f.fund_name}>{f.fund_name}</option>)}
+                    </select>
+                  </div>
+                  <div className="mf-grid-2" style={{ marginBottom: 0 }}>
+                    <div>
+                      <label style={LBL}>Amount (₹) *</label>
+                      <input type="number" value={lumpsumForm.amount} onChange={e => setLumpsumForm(f => ({ ...f, amount: e.target.value }))} placeholder="50000" style={INP} />
+                    </div>
+                    <div>
+                      <label style={LBL}>NAV at Purchase</label>
+                      <input type="number" value={lumpsumForm.nav} onChange={e => setLumpsumForm(f => ({ ...f, nav: e.target.value }))} placeholder="Optional" style={INP} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={LBL}>Date</label>
+                    <input type="date" value={lumpsumForm.date} onChange={e => setLumpsumForm(f => ({ ...f, date: e.target.value }))} style={INP} />
+                  </div>
+                  <div>
+                    <label style={LBL}>Notes</label>
+                    <input value={lumpsumForm.notes} onChange={e => setLumpsumForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" style={INP} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+                    <button onClick={() => setModal(null)} style={{ flex: 1, padding: '11px', border: `1.5px solid ${C.border}`, borderRadius: 10, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.text2 }}>Cancel</button>
+                    <button onClick={addLumpsum} style={{ flex: 2, padding: '11px', background: C.mf.main, color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Add Investment</button>
+                  </div>
+                </div>
+              </ModalShell>
+            )}
+
+            {/* Buy */}
+            {modal === 'buy' && selFund && (
+              <ModalShell title={`Buy — ${selFund.fund_name}`} onClose={() => { setModal(null); setSelFund(null) }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div className="mf-grid-2" style={{ marginBottom: 0 }}>
+                    <div>
+                      <label style={LBL}>Amount (₹) *</label>
+                      <input type="number" value={buyForm.amount} onChange={e => setBuyForm(f => ({ ...f, amount: e.target.value }))} placeholder="10000" style={INP} />
+                    </div>
+                    <div>
+                      <label style={LBL}>NAV</label>
+                      <input type="number" value={buyForm.nav} onChange={e => setBuyForm(f => ({ ...f, nav: e.target.value }))} placeholder={String(selFund.current_nav || '')} style={INP} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={LBL}>Date</label>
+                    <input type="date" value={buyForm.date} onChange={e => setBuyForm(f => ({ ...f, date: e.target.value }))} style={INP} />
+                  </div>
+                  <div>
+                    <label style={LBL}>Notes</label>
+                    <input value={buyForm.notes} onChange={e => setBuyForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" style={INP} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+                    <button onClick={() => { setModal(null); setSelFund(null) }} style={{ flex: 1, padding: '11px', border: `1.5px solid ${C.border}`, borderRadius: 10, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.text2 }}>Cancel</button>
+                    <button onClick={recordBuy} style={{ flex: 2, padding: '11px', background: C.green, color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Record Buy</button>
+                  </div>
+                </div>
+              </ModalShell>
+            )}
+
+            {/* Sell */}
+            {modal === 'sell' && selFund && (
+              <ModalShell title={`Sell — ${selFund.fund_name}`} onClose={() => { setModal(null); setSelFund(null) }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#92400E' }}>
+                    Units held: <strong>{selFund.units.toFixed(4)}</strong> @ NAV ₹{selFund.current_nav}
+                  </div>
+                  <div className="mf-grid-2" style={{ marginBottom: 0 }}>
+                    <div>
+                      <label style={LBL}>Units to Sell *</label>
+                      <input type="number" value={sellForm.units} onChange={e => setSellForm(f => ({ ...f, units: e.target.value }))} placeholder="0.0000" style={INP} />
+                    </div>
+                    <div>
+                      <label style={LBL}>NAV</label>
+                      <input type="number" value={sellForm.nav} onChange={e => setSellForm(f => ({ ...f, nav: e.target.value }))} placeholder={String(selFund.current_nav || '')} style={INP} />
+                    </div>
+                  </div>
+                  {sellForm.units && sellForm.nav && (
+                    <div style={{ background: '#F0FDF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#166534' }}>
+                      Estimated proceeds: <strong>₹{(Number(sellForm.units) * Number(sellForm.nav)).toLocaleString('en-IN')}</strong>
+                    </div>
+                  )}
+                  <div>
+                    <label style={LBL}>Date</label>
+                    <input type="date" value={sellForm.date} onChange={e => setSellForm(f => ({ ...f, date: e.target.value }))} style={INP} />
+                  </div>
+                  <div>
+                    <label style={LBL}>Notes</label>
+                    <input value={sellForm.notes} onChange={e => setSellForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" style={INP} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+                    <button onClick={() => { setModal(null); setSelFund(null) }} style={{ flex: 1, padding: '11px', border: `1.5px solid ${C.border}`, borderRadius: 10, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.text2 }}>Cancel</button>
+                    <button onClick={recordSell} style={{ flex: 2, padding: '11px', background: C.red, color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Record Sell</button>
+                  </div>
+                </div>
+              </ModalShell>
+            )}
+
+            {/* Edit Fund */}
+            {modal === 'edit-fund' && selFund && (
+              <ModalShell title={`Edit — ${selFund.fund_name}`} onClose={() => { setModal(null); setSelFund(null) }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div className="mf-grid-2" style={{ marginBottom: 0 }}>
+                    <div>
+                      <label style={LBL}>Monthly SIP (₹)</label>
+                      <input type="number" value={editForm.sip_amount ?? selFund.sip_amount} onChange={e => setEditForm(f => ({ ...f, sip_amount: Number(e.target.value) }))} style={INP} />
+                    </div>
+                    <div>
+                      <label style={LBL}>SIP Date</label>
+                      <select value={editForm.sip_date ?? selFund.sip_date} onChange={e => setEditForm(f => ({ ...f, sip_date: Number(e.target.value) }))} style={INP}>
+                        {[1, 5, 7, 10, 15, 20, 25, 28].map(d => <option key={d} value={d}>{d}th</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="mf-grid-2" style={{ marginBottom: 0 }}>
+                    <div>
+                      <label style={LBL}>Category</label>
+                      <select value={editForm.category ?? selFund.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value as any }))} style={INP}>
+                        <option value="core">Core</option>
+                        <option value="growth">Growth</option>
+                        <option value="satellite">Satellite</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={LBL}>Latest NAV (₹)</label>
+                      <input type="number" value={editForm.current_nav ?? selFund.current_nav} onChange={e => setEditForm(f => ({ ...f, current_nav: Number(e.target.value) }))} style={INP} />
+                    </div>
+                  </div>
+                  <div>
+                    <label style={LBL}>Sub-category</label>
+                    <input value={editForm.sub_category ?? selFund.sub_category ?? ''} onChange={e => setEditForm(f => ({ ...f, sub_category: e.target.value }))} placeholder="Flexi Cap" style={INP} />
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer', color: C.text2 }}>
+                    <input type="checkbox" checked={editForm.is_active ?? selFund.is_active} onChange={e => setEditForm(f => ({ ...f, is_active: e.target.checked }))} />
+                    Active SIP
+                  </label>
+                  <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
+                    <button onClick={() => { setModal(null); setSelFund(null) }} style={{ flex: 1, padding: '11px', border: `1.5px solid ${C.border}`, borderRadius: 10, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.text2 }}>Cancel</button>
+                    <button onClick={saveFundEdit} style={{ flex: 2, padding: '11px', background: C.mf.main, color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Save Changes</button>
+                  </div>
+                </div>
+              </ModalShell>
+            )}
+
+            {/* Delete */}
+            {modal === 'delete' && selFund && (
+              <ModalShell title="Remove Fund" onClose={() => { setModal(null); setSelFund(null) }}>
+                <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>🗑️</div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 8 }}>Remove {selFund.fund_name}?</div>
+                  <div style={{ fontSize: 13, color: C.text3, marginBottom: 24, lineHeight: 1.6 }}>
+                    This will remove the fund from your portfolio. Past transactions won't be deleted.
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button onClick={() => { setModal(null); setSelFund(null) }} style={{ flex: 1, padding: '11px', border: `1.5px solid ${C.border}`, borderRadius: 10, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.text2 }}>Cancel</button>
+                    <button onClick={deleteFund} style={{ flex: 1, padding: '11px', background: C.red, color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Remove Fund</button>
+                  </div>
+                </div>
+              </ModalShell>
+            )}
+
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-// ─── Small shared sub-components ─────────────────────────────────────────────
-function Modal({ title, onClose, onSave, saveLabel, accent, children }: any) {
+// ════════════════════════════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ════════════════════════════════════════════════════════════════════════════
+
+function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <>
-      <div style={{ padding:'20px 24px 16px', borderBottom:`1px solid ${C.border}`,
-        display:'flex', justifyContent:'space-between', alignItems:'center',
-        position:'sticky', top:0, background:'white', zIndex:1 }}>
-        <div style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, color:C.text }}>{title}</div>
-        <button onClick={onClose} style={{ width:30, height:30, borderRadius:'50%',
-          border:`1px solid ${C.border}`, background:'#F9FAFB', cursor:'pointer',
-          fontSize:14, color:C.text3 }}>✕</button>
+    <div style={{ padding: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h3 style={{ fontSize: 17, fontWeight: 700, color: C.text, margin: 0, fontFamily: "'Syne',sans-serif" }}>{title}</h3>
+        <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${C.border}`, background: '#F8FAFC', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
       </div>
-      <div style={{ padding:'20px 24px' }}>{children}</div>
-      <div style={{ padding:'14px 24px 20px', borderTop:`1px solid ${C.border}`,
-        display:'flex', justifyContent:'flex-end', gap:10 }}>
-        <button onClick={onClose} style={{ padding:'10px 20px', background:'#F9FAFB',
-          border:`1px solid ${C.border}`, borderRadius:10, fontSize:13, cursor:'pointer', fontWeight:500 }}>
-          Cancel
-        </button>
-        <button onClick={onSave}
-          style={{ padding:'10px 24px', background:accent, color:'white',
-            border:'none', borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer' }}>
-          {saveLabel}
-        </button>
-      </div>
-    </>
-  )
-}
-
-function FormGrid({ children }: any) {
-  return <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>{children}</div>
-}
-function FormRow({ children, full }: any) {
-  return <div style={{ gridColumn: full ? '1/-1' : undefined }}>{children}</div>
-}
-function CalcPreview({ label, val }: { label: string; val: string }) {
-  return (
-    <div style={{ background:'#EDE9FE', border:'1px solid #DDD6FE', borderRadius:10,
-      padding:'12px 16px', marginTop:14, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-      <div style={{ fontSize:12, color:C.text3 }}>{label}</div>
-      <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:18, fontWeight:700, color:C.mf.main }}>{val}</div>
-    </div>
-  )
-}
-
-function TableHeader({ cols, widths }: { cols: string[]; widths: string }) {
-  return (
-    <div style={{ display:'grid', gridTemplateColumns:widths, background:'#F8FAFC',
-      padding:'10px 16px', borderBottom:`1px solid ${C.border}`, minWidth:640 }}>
-      {cols.map(c => (
-        <div key={c} style={{ fontSize:10, fontWeight:600, color:C.text4,
-          textTransform:'uppercase', letterSpacing:'1px' }}>{c}</div>
-      ))}
-    </div>
-  )
-}
-
-function Mono({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return (
-    <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:C.text2, ...style }}>
       {children}
     </div>
   )
 }
-function ActionBtn({ children, color, bg, onClick }: any) {
+
+function StatCard({ label, value, sub, color, icon }: { label: string; value: string; sub?: string; color?: string; icon?: string }) {
   return (
-    <button onClick={onClick}
-      style={{ padding:'3px 10px', background:bg, color, border:'none',
-        borderRadius:6, fontSize:11, cursor:'pointer', fontWeight:500 }}>
-      {children}
+    <div style={{ background: 'white', borderRadius: 14, padding: '16px 18px', border: `1px solid ${C.border}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.text3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+        {icon && <span style={{ fontSize: 18 }}>{icon}</span>}
+      </div>
+      <div style={{ fontSize: 20, fontWeight: 700, color: color || C.text, fontFamily: "'Syne',sans-serif", lineHeight: 1.1 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: C.text3, marginTop: 4 }}>{sub}</div>}
+    </div>
+  )
+}
+
+function FundRow({ fund, onEdit, onDelete, onBuy, onSell }: {
+  fund: Fund; onEdit?: () => void; onDelete?: () => void; onBuy?: () => void; onSell?: () => void
+}) {
+  const gain    = fund.current_value - fund.invested
+  const gainPct = fund.invested > 0 ? (gain / fund.invested) * 100 : 0
+  const isPos   = gain >= 0
+
+  return (
+    <tr className="hover-row" style={{ borderBottom: `1px solid ${C.border}`, transition: '.15s' }}>
+      <td style={{ padding: '14px 12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: fund.color, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.2 }}>{fund.fund_name}</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 3 }}>
+              <span style={{ fontSize: 10, background: CAT_BG[fund.category] || '#F5F3FF', color: CAT_COLOR[fund.category] || C.mf.main, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>{fund.category}</span>
+              {fund.sub_category && <span style={{ fontSize: 10, color: C.text4 }}>{fund.sub_category}</span>}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td style={{ padding: '14px 12px', fontSize: 13, color: C.text2, textAlign: 'right' }}>
+        {fund.sip_amount > 0 ? <span style={{ fontWeight: 600, color: C.mf.main }}>₹{fund.sip_amount.toLocaleString('en-IN')}/mo</span> : '—'}
+        {fund.sip_date > 0 && fund.sip_amount > 0 && <div style={{ fontSize: 10, color: C.text4 }}>{fund.sip_date}th</div>}
+      </td>
+      <td style={{ padding: '14px 12px', textAlign: 'right' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{fmtINR(fund.invested)}</div>
+        <div style={{ fontSize: 10, color: C.text4 }}>{fund.units.toFixed(3)} units</div>
+      </td>
+      <td style={{ padding: '14px 12px', textAlign: 'right' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{fmtINR(fund.current_value)}</div>
+        <div style={{ fontSize: 11, color: C.text4 }}>NAV ₹{fund.current_nav}</div>
+      </td>
+      <td style={{ padding: '14px 12px', textAlign: 'right' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: isPos ? C.green : C.red }}>
+          {isPos ? '+' : ''}{fmtINR(gain)}
+        </div>
+        <div style={{ fontSize: 11, color: isPos ? C.green : C.red }}>
+          {isPos ? '+' : ''}{gainPct.toFixed(1)}%
+        </div>
+      </td>
+      <td style={{ padding: '14px 12px' }}>
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          {onBuy  && <Btn label="Buy"  color={C.green}   onClick={onBuy} />}
+          {onSell && <Btn label="Sell" color={C.red}     onClick={onSell} />}
+          {onEdit && <Btn label="Edit" color={C.mf.main} onClick={onEdit} />}
+          {onDelete && <Btn label="✕" color={C.text3} onClick={onDelete} />}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
+function Btn({ label, color, onClick }: { label: string; color: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{ padding: '5px 10px', fontSize: 11, fontWeight: 600, background: color + '15', color, border: `1px solid ${color}30`, borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+      {label}
     </button>
   )
 }
-function EmptyState({ msg }: { msg: string }) {
-  return (
-    <div style={{ padding:32, textAlign:'center', color:C.text4, fontSize:13 }}>
-      <div style={{ fontSize:36, marginBottom:10 }}>📊</div>{msg}
-    </div>
-  )
-}
 
-function TxTable({ label, txns, onDelete, loading, showEmpty }: {
-  label: string; txns: Transaction[]; onDelete: (id:string)=>void;
-  loading: boolean; showEmpty?: boolean;
+// ── Mobile fund card (used instead of table rows on narrow screens) ──────────
+function FundCard({ fund, onEdit, onBuy, onSell, onDelete }: {
+  fund: Fund; onEdit?: () => void; onBuy?: () => void; onSell?: () => void; onDelete?: () => void
 }) {
-  const typeColor: Record<string,{bg:string,c:string}> = {
-    sip:     { bg:'#ECFDF5', c:C.green  },
-    buy:     { bg:'#ECFDF5', c:C.green  },
-    sell:    { bg:'#FFF0F5', c:C.red    },
-    lumpsum: { bg:'#EFF6FF', c:C.blue   },
-  }
+  const gain    = fund.current_value - fund.invested
+  const gainPct = fund.invested > 0 ? (gain / fund.invested) * 100 : 0
+  const isPos   = gain >= 0
   return (
-    <div style={{ background:'white', borderRadius:16, border:`1px solid ${C.border}`, overflow:'hidden' }}>
-      {label && (
-        <div style={{ padding:'16px 20px', borderBottom:`1px solid ${C.border}`,
-          display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <div style={{ fontSize:14, fontWeight:600, color:C.text }}>{label}</div>
-          <div style={{ fontSize:12, color:C.text4 }}>{txns.length} entries</div>
+    <div style={{ background: 'white', borderRadius: 14, padding: 16, border: `1px solid ${C.border}`, marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flex: 1, minWidth: 0 }}>
+          <div style={{ width: 10, height: 10, borderRadius: '50%', background: fund.color, flexShrink: 0, marginTop: 4 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.3 }}>{fund.fund_name}</div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+              <span style={{ fontSize: 10, background: CAT_BG[fund.category] || '#F5F3FF', color: CAT_COLOR[fund.category] || C.mf.main, padding: '2px 7px', borderRadius: 4, fontWeight: 600 }}>{fund.category}</span>
+            </div>
+          </div>
         </div>
-      )}
-      <div style={{ overflowX:'auto' }}>
-        <TableHeader cols={['Fund','Type','Amount','NAV','Units','Date','Action']}
-          widths="2fr 80px 90px 70px 80px 90px 60px" />
-        {loading
-          ? [1,2,3].map(i => <div key={i} style={{ padding:'12px 16px', borderBottom:`1px solid ${C.border}` }}><Sk_local h={12} /></div>)
-          : txns.length === 0 && showEmpty
-            ? <EmptyState msg="No transactions found." />
-            : txns.map((t,i) => (
-                <div key={t.id} style={{ display:'grid', gridTemplateColumns:'2fr 80px 90px 70px 80px 90px 60px',
-                  padding:'11px 16px', borderBottom:i<txns.length-1?`1px solid ${C.border}`:'none',
-                  alignItems:'center', minWidth:640 }}>
-                  <div style={{ fontSize:12, fontWeight:500, color:C.text }}>{t.fund_name}</div>
-                  <div>
-                    <span style={{ fontSize:10, padding:'2px 7px', borderRadius:4, fontWeight:500,
-                      textTransform:'capitalize', ...(typeColor[t.type] || { bg:'#F3F4F6', c:C.text4 }) }}>
-                      {t.type}
-                    </span>
-                  </div>
-                  <Mono style={{ color: t.type==='sell'?C.red:C.green, fontWeight:600 }}>
-                    {t.type==='sell'?'-':'+'}{fmtINR(t.amount)}
-                  </Mono>
-                  <Mono>₹{t.nav||'—'}</Mono>
-                  <Mono>{t.units>0?t.units.toFixed(3):'—'}</Mono>
-                  <Mono style={{ fontSize:11 }}>{t.date}</Mono>
-                  <div>
-                    <button onClick={()=>onDelete(t.id)}
-                      style={{ padding:'3px 8px', background:'#F9FAFB', color:C.text4,
-                        border:`1px solid ${C.border}`, borderRadius:6, fontSize:11, cursor:'pointer' }}>🗑</button>
-                  </div>
-                </div>
-              ))
-        }
+        <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+          {onEdit   && <Btn label="Edit" color={C.mf.main} onClick={onEdit} />}
+          {onDelete && <Btn label="✕"   color={C.text3}   onClick={onDelete} />}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 10, color: C.text4, marginBottom: 2 }}>Invested</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{fmtINR(fund.invested)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: C.text4, marginBottom: 2 }}>Current</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{fmtINR(fund.current_value)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: C.text4, marginBottom: 2 }}>Gain/Loss</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: isPos ? C.green : C.red }}>
+            {isPos ? '+' : ''}{gainPct.toFixed(1)}%
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: 11, color: C.text3 }}>
+          {fund.sip_amount > 0 ? `SIP ₹${fund.sip_amount.toLocaleString('en-IN')}/mo` : 'Lumpsum'} · NAV ₹{fund.current_nav}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {onBuy  && <Btn label="Buy"  color={C.green} onClick={onBuy} />}
+          {onSell && <Btn label="Sell" color={C.red}   onClick={onSell} />}
+        </div>
       </div>
     </div>
   )
 }
 
-// Inline skeleton for use inside TxTable (can't use outer Sk due to scope)
-function Sk_local({ h = 14 }: { h?: number }) {
+// ════════════════════════════════════════════════════════════════════════════
+// TAB COMPONENTS
+// ════════════════════════════════════════════════════════════════════════════
+
+function DashboardTab({ funds, totalInvested, totalCurrent, totalGain, gainPct, xirr, totalSIP, activeFunds, bestReturn, onBuy, onSell, onEdit }: any) {
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768)
+    check(); window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
   return (
-    <div style={{
-      height: h, width: '100%',
-      background: 'linear-gradient(90deg,#E8ECF2 25%,#F5F7FA 50%,#E8ECF2 75%)',
-      backgroundSize: '200% 100%', animation: 'skshimmer 1.5s infinite', borderRadius: 6,
-    }} />
+    <div className="fade-up">
+      {/* Hero metrics */}
+      <div className="mf-hero">
+        <StatCard label="Portfolio Value"    value={fmtINR(totalCurrent)}  sub={`${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}% overall`} color={C.mf.main} icon="📊" />
+        <StatCard label="Total Invested"     value={fmtINR(totalInvested)} icon="💰" />
+        <StatCard label="Total Gain/Loss"    value={`${totalGain >= 0 ? '+' : ''}${fmtINR(totalGain)}`} color={totalGain >= 0 ? C.green : C.red} icon={totalGain >= 0 ? '📈' : '📉'} />
+        <StatCard label="XIRR"               value={`${xirr >= 0 ? '+' : ''}${xirr.toFixed(1)}%`} color={xirr >= 0 ? C.green : C.red} sub="annualised" icon="🎯" />
+      </div>
+
+      {/* Secondary stats */}
+      <div className="mf-grid-3">
+        <StatCard label="Monthly SIP"    value={`₹${totalSIP.toLocaleString('en-IN')}`} sub={`${activeFunds.length} active funds`} icon="🔄" />
+        <StatCard label="Best Performer" value={`+${bestReturn.toFixed(1)}%`} color={C.green} icon="🏆" />
+        <StatCard label="Funds Tracked"  value={String(funds.length)} icon="📋" />
+      </div>
+
+      {/* Fund list */}
+      <div style={{ background: 'white', borderRadius: 16, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0, fontFamily: "'Syne',sans-serif" }}>All Holdings</h3>
+        </div>
+
+        {isMobile ? (
+          <div style={{ padding: '12px 14px' }}>
+            {funds.map((f: Fund) => (
+              <FundCard key={f.id} fund={f}
+                onBuy={() => onBuy(f)} onSell={() => onSell(f)} onEdit={() => onEdit(f)}
+              />
+            ))}
+            {!funds.length && <EmptyState msg="No funds yet. Add your first SIP." />}
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="mf-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#F8FAFC' }}>
+                  {['Fund', 'SIP', 'Invested', 'Current', 'Gain/Loss', 'Actions'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, color: C.text3, textAlign: h === 'Fund' ? 'left' : 'right', textTransform: 'uppercase', letterSpacing: '0.4px', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {funds.map((f: Fund) => (
+                  <FundRow key={f.id} fund={f}
+                    onBuy={() => onBuy(f)} onSell={() => onSell(f)} onEdit={() => onEdit(f)}
+                  />
+                ))}
+                {!funds.length && (
+                  <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: C.text3, fontSize: 14 }}>No funds yet — add your first SIP.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SIPTab({ funds, onEdit, onDelete, onBuy }: any) {
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768)
+    check(); window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [])
+
+  const active   = funds.filter((f: Fund) => f.is_active)
+  const inactive = funds.filter((f: Fund) => !f.is_active)
+
+  return (
+    <div className="fade-up">
+      <div className="mf-grid-3">
+        <StatCard label="Active SIPs"  value={String(active.length)}  icon="🔄" />
+        <StatCard label="Monthly Flow" value={`₹${active.reduce((s: number, f: Fund) => s + f.sip_amount, 0).toLocaleString('en-IN')}`} icon="💸" />
+        <StatCard label="Paused SIPs"  value={String(inactive.length)} icon="⏸️" />
+      </div>
+
+      <div style={{ background: 'white', borderRadius: 16, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0, fontFamily: "'Syne',sans-serif" }}>SIP Funds</h3>
+        </div>
+        {isMobile ? (
+          <div style={{ padding: '12px 14px' }}>
+            {funds.map((f: Fund) => (
+              <FundCard key={f.id} fund={f}
+                onEdit={() => onEdit(f)} onDelete={() => onDelete(f)} onBuy={() => onBuy(f)}
+              />
+            ))}
+            {!funds.length && <EmptyState msg="No SIP funds. Add one to get started." />}
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="mf-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: '#F8FAFC' }}>
+                  {['Fund', 'SIP', 'Invested', 'Current', 'Gain/Loss', 'Actions'].map(h => (
+                    <th key={h} style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, color: C.text3, textAlign: h === 'Fund' ? 'left' : 'right', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {funds.map((f: Fund) => (
+                  <FundRow key={f.id} fund={f}
+                    onEdit={() => onEdit(f)} onDelete={() => onDelete(f)} onBuy={() => onBuy(f)}
+                  />
+                ))}
+                {!funds.length && (
+                  <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: C.text3 }}>No SIP funds yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LumpsumTab({ funds, transactions }: any) {
+  const total = transactions.reduce((s: number, t: Transaction) => s + t.amount, 0)
+  return (
+    <div className="fade-up">
+      <div className="mf-grid-2">
+        <StatCard label="Total Lumpsum Invested" value={fmtINR(total)} icon="💰" />
+        <StatCard label="Lumpsum Transactions"   value={String(transactions.length)} icon="📋" />
+      </div>
+      <div style={{ background: 'white', borderRadius: 16, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}` }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: C.text, margin: 0, fontFamily: "'Syne',sans-serif" }}>Lumpsum Transactions</h3>
+        </div>
+        <div className="table-scroll">
+          <table className="mf-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#F8FAFC' }}>
+                {['Fund', 'Date', 'Amount', 'NAV', 'Units'].map(h => (
+                  <th key={h} style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, color: C.text3, textAlign: h === 'Fund' ? 'left' : 'right', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((t: Transaction) => (
+                <tr key={t.id} className="hover-row" style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '12px', fontSize: 13, fontWeight: 500, color: C.text }}>{t.fund_name}</td>
+                  <td style={{ padding: '12px', fontSize: 12, color: C.text3, textAlign: 'right' }}>{t.date}</td>
+                  <td style={{ padding: '12px', fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'right' }}>{fmtINR(t.amount)}</td>
+                  <td style={{ padding: '12px', fontSize: 12, color: C.text3, textAlign: 'right' }}>₹{t.nav}</td>
+                  <td style={{ padding: '12px', fontSize: 12, color: C.text3, textAlign: 'right' }}>{t.units.toFixed(4)}</td>
+                </tr>
+              ))}
+              {!transactions.length && (
+                <tr><td colSpan={5} style={{ padding: 40, textAlign: 'center', color: C.text3 }}>No lumpsum transactions yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TransactionsTab({ transactions, txFilter, setTxFilter, search, setSearch }: any) {
+  const typeColors: Record<string, string> = {
+    sip: C.mf.main, buy: C.green, lumpsum: C.blue, sell: C.red, switch_out: C.orange,
+  }
+  return (
+    <div className="fade-up">
+      {/* Filters */}
+      <div style={{ background: 'white', borderRadius: 14, padding: '14px 16px', border: `1px solid ${C.border}`, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search fund…"
+            style={{ ...INP, width: 'auto', flex: '1 1 160px', minWidth: 120 }}
+          />
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {['all','sip','buy','lumpsum','sell'].map(f => (
+              <button key={f} onClick={() => setTxFilter(f)}
+                style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${txFilter === f ? C.mf.main : C.border}`, background: txFilter === f ? C.mf.bg : 'white', color: txFilter === f ? C.mf.main : C.text3, cursor: 'pointer', textTransform: 'capitalize' }}>
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ background: 'white', borderRadius: 16, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+        <div className="table-scroll">
+          <table className="mf-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#F8FAFC' }}>
+                {['Fund', 'Type', 'Date', 'Amount', 'NAV', 'Units'].map(h => (
+                  <th key={h} style={{ padding: '10px 12px', fontSize: 11, fontWeight: 600, color: C.text3, textAlign: h === 'Fund' ? 'left' : 'right', textTransform: 'uppercase', letterSpacing: '0.4px', whiteSpace: 'nowrap' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map((t: Transaction) => (
+                <tr key={t.id} className="hover-row" style={{ borderBottom: `1px solid ${C.border}` }}>
+                  <td style={{ padding: '12px', fontSize: 13, fontWeight: 500, color: C.text, maxWidth: 180 }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.fund_name}</div>
+                  </td>
+                  <td style={{ padding: '12px', textAlign: 'right' }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, background: (typeColors[t.type] || C.text3) + '15', color: typeColors[t.type] || C.text3, padding: '3px 8px', borderRadius: 6, textTransform: 'uppercase' }}>{t.type}</span>
+                  </td>
+                  <td style={{ padding: '12px', fontSize: 12, color: C.text3, textAlign: 'right', whiteSpace: 'nowrap' }}>{t.date}</td>
+                  <td style={{ padding: '12px', fontSize: 13, fontWeight: 600, color: C.text, textAlign: 'right' }}>{fmtINR(t.amount)}</td>
+                  <td style={{ padding: '12px', fontSize: 12, color: C.text3, textAlign: 'right' }}>₹{t.nav || '—'}</td>
+                  <td style={{ padding: '12px', fontSize: 12, color: C.text3, textAlign: 'right' }}>{t.units ? t.units.toFixed(4) : '—'}</td>
+                </tr>
+              ))}
+              {!transactions.length && (
+                <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: C.text3 }}>No transactions found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProjectionsTab({ projData, projPeriod, setProjP, breakdown, milestones, totalCurrent, totalSIP }: any) {
+  const PERIODS: ProjPeriod[] = ['3m', '6m', '1y', '5y']
+  const p = projData[projPeriod] || {}
+  return (
+    <div className="fade-up">
+      {/* Period selector */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }} className="period-tabs">
+        {PERIODS.map(per => (
+          <button key={per} onClick={() => setProjP(per)}
+            style={{ padding: '8px 20px', borderRadius: 10, border: `1.5px solid ${projPeriod === per ? C.mf.main : C.border}`, background: projPeriod === per ? C.mf.bg : 'white', color: projPeriod === per ? C.mf.main : C.text3, fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: '.15s' }}>
+            {per === '3m' ? '3 Months' : per === '6m' ? '6 Months' : per === '1y' ? '1 Year' : '5 Years'}
+          </button>
+        ))}
+      </div>
+
+      {/* Scenario cards */}
+      <div className="mf-grid-3" style={{ marginBottom: 20 }}>
+        {[
+          { label: '🐻 Bear (10%)',  val: p.bear, color: C.red },
+          { label: '📊 Base (13%)',  val: p.base, color: C.mf.main },
+          { label: '🐂 Bull (16%)',  val: p.bull, color: C.green },
+        ].map(s => (
+          <div key={s.label} style={{ background: 'white', borderRadius: 14, padding: '18px 20px', border: `1px solid ${C.border}`, textAlign: 'center' }}>
+            <div style={{ fontSize: 13, color: C.text3, marginBottom: 8 }}>{s.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: s.color, fontFamily: "'Syne',sans-serif" }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Breakdown */}
+      <div style={{ background: 'white', borderRadius: 16, padding: '20px', border: `1px solid ${C.border}`, marginBottom: 16 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: '0 0 16px', fontFamily: "'Syne',sans-serif" }}>Value Breakdown</h3>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }} className="proj-breakdown">
+          {[
+            { label: 'Corpus Growth', val: breakdown.corpus.val,   pct: breakdown.corpus.pct,   color: C.mf.main },
+            { label: 'SIP Invested',  val: breakdown.sipContr.val, pct: breakdown.sipContr.pct, color: C.blue },
+            { label: 'SIP Growth',    val: breakdown.sipGrow.val,  pct: breakdown.sipGrow.pct,  color: C.green },
+          ].map(b => (
+            <div key={b.label} style={{ flex: '1 1 130px', background: '#F8FAFC', borderRadius: 10, padding: '12px 14px' }}>
+              <div style={{ fontSize: 11, color: C.text3, marginBottom: 4 }}>{b.label}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: b.color, fontFamily: "'Syne',sans-serif" }}>{b.val}</div>
+              <div style={{ fontSize: 11, color: C.text4, marginTop: 2 }}>{b.pct.toFixed(1)}% of total</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Milestones */}
+      <div style={{ background: 'white', borderRadius: 16, padding: '20px', border: `1px solid ${C.border}` }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: '0 0 16px', fontFamily: "'Syne',sans-serif" }}>Wealth Milestones</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }} className="milestone-grid">
+          {milestones.map((m: any) => {
+            const reached = m.date === '✓ Reached'
+            return (
+              <div key={m.label} style={{ background: reached ? '#F0FDF4' : '#F8FAFC', borderRadius: 12, padding: '14px 16px', border: `1px solid ${reached ? '#86EFAC' : C.border}` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 20 }}>{m.icon}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: reached ? C.green : C.mf.main }}>{m.date}</span>
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: C.text, fontFamily: "'Syne',sans-serif" }}>{m.label}</div>
+                <div style={{ fontSize: 11, color: C.text3, marginTop: 3 }}>{m.range}</div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AgentTab({ agentOut, agentBusy, runAgent, alerts }: any) {
+  const actions: { type: AgentType; label: string; icon: string; desc: string }[] = [
+    { type: 'weekly',     label: 'Weekly Review',   icon: '📋', desc: 'Portfolio performance summary' },
+    { type: 'projection', label: 'Projection',       icon: '📈', desc: 'Future value analysis' },
+    { type: 'alert',      label: 'Risk Alerts',      icon: '⚠️', desc: 'Identify risks & opportunities' },
+    { type: 'advice',     label: 'Rebalance Advice', icon: '⚖️', desc: 'Allocation suggestions' },
+  ]
+  return (
+    <div className="fade-up">
+      {/* Action buttons */}
+      <div className="mf-grid-2" style={{ marginBottom: 20 }}>
+        {actions.map(a => (
+          <button key={a.type} onClick={() => runAgent(a.type)} disabled={agentBusy}
+            style={{ background: 'white', border: `1.5px solid ${C.border}`, borderRadius: 14, padding: '16px', textAlign: 'left', cursor: agentBusy ? 'not-allowed' : 'pointer', opacity: agentBusy ? 0.6 : 1, transition: '.15s' }}>
+            <div style={{ fontSize: 24, marginBottom: 8 }}>{a.icon}</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{a.label}</div>
+            <div style={{ fontSize: 11, color: C.text3, marginTop: 3 }}>{a.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Output */}
+      {(agentBusy || agentOut) && (
+        <div style={{ background: 'white', borderRadius: 16, padding: '20px', border: `1px solid ${C.border}` }}>
+          {agentBusy ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: C.text3 }}>
+              <div style={{ width: 16, height: 16, border: `2px solid ${C.mf.main}`, borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+              <span>AI Advisor is analysing your portfolio…</span>
+            </div>
+          ) : (
+            <pre className="agent-output" style={{ fontFamily: "'DM Sans',sans-serif", fontSize: 14, color: C.text2, whiteSpace: 'pre-wrap', lineHeight: 1.7, margin: 0 }}>{agentOut}</pre>
+          )}
+        </div>
+      )}
+
+      {/* Alerts */}
+      {alerts.length > 0 && (
+        <div style={{ marginTop: 20, background: 'white', borderRadius: 16, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}` }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: C.text, margin: 0, fontFamily: "'Syne',sans-serif" }}>Recent Alerts</h3>
+          </div>
+          {alerts.slice(0, 5).map((a: Alert) => (
+            <div key={a.id} style={{ padding: '12px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 18 }}>{a.alert_type === 'risk' ? '⚠️' : a.alert_type === 'opportunity' ? '💡' : '🔔'}</span>
+              <div>
+                <div style={{ fontSize: 13, color: C.text2, lineHeight: 1.4 }}>{a.message}</div>
+                <div style={{ fontSize: 11, color: C.text4, marginTop: 3 }}>{new Date(a.triggered_at).toLocaleDateString('en-IN')}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function EmptyState({ msg }: { msg: string }) {
+  return (
+    <div style={{ padding: '40px 20px', textAlign: 'center', color: C.text3, fontSize: 14 }}>
+      <div style={{ fontSize: 32, marginBottom: 10 }}>📭</div>
+      {msg}
+    </div>
   )
 }
