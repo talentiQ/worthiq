@@ -85,7 +85,7 @@ function AuthScreen() {
           <div style={{ display:'inline-flex', alignItems:'center', gap:12, background:'rgba(255,255,255,.1)', backdropFilter:'blur(8px)', padding:'12px 24px', borderRadius:16, border:'1px solid rgba(255,255,255,.15)' }}>
             <div style={{ width:44, height:44, background:'linear-gradient(135deg,#3B6FD4,#10B981)', borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, fontWeight:800, color:'white' }}>₹</div>
             <div style={{ textAlign:'left' }}>
-              <div style={{ color:'white', fontSize:20, fontWeight:700, letterSpacing:'-0.5px', fontFamily:"'Syne',sans-serif" }}>WEALTH IQ</div>
+              <div style={{ color:'white', fontSize:20, fontWeight:700, letterSpacing:'-0.5px', fontFamily:"'Syne',sans-serif" }}>WORTH IQ</div>
               <div style={{ color:'rgba(255,255,255,.6)', fontSize:11, letterSpacing:'2px', textTransform:'uppercase' }}>Intelligence for Your Net Worth.</div>
             </div>
           </div>
@@ -411,7 +411,7 @@ function Sidebar({ mod, setMod, auth, onLogout, alertCount }) {
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ width:40, height:40, background:'linear-gradient(135deg,#3B6FD4,#10B981)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, fontWeight:800, color:'white', flexShrink:0 }}>₹</div>
           <div>
-            <div style={{ color:'white', fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, lineHeight:1.1 }}>WEALTH IQ</div>
+            <div style={{ color:'white', fontFamily:"'Syne',sans-serif", fontWeight:700, fontSize:16, lineHeight:1.1 }}>WORTH IQ</div>
             <div style={{ color:'rgba(255,255,255,.4)', fontSize:9, letterSpacing:'1.5px', textTransform:'uppercase' }}>GOLD</div>
           </div>
         </div>
