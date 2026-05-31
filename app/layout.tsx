@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NW Portfolio | Wealth Enterprise Platform",
-  description: "Your complete net worth & wealth management platform",
+  title: "Worth IQ | NetWorth Intelligence Platform",
+  description: "Intelligence for your net worth.",
 };
 
 export default function RootLayout({

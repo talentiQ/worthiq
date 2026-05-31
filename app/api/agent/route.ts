@@ -1,379 +1,332 @@
-// app/api/agent/route.ts
-
-import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { supabaseAdmin as supabase } from '@/lib/supabase-server'
+import { NextResponse } from 'next/server'
+import { supabase } from '@/lib/supabase'
 import {
-  calcProjection,
-  formatINR,
-  MY_FUNDS,
-  TOTAL_SIP,
-} from '@/lib/funds'
+  buildContext,
+  buildPrompt,
+  DAILY_TOKEN_LIMIT,
+  estimateTotalTokens,
+  type AgentType,
+  type NetWorthContext,
+  SYSTEM_PROMPT,
+} from '@/lib/agent-prompts'
 
 export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-})
+const AGENT_TYPES: AgentType[] = [
+  'weekly_nw',
+  'mf_review',
+  'debt_optimizer',
+  'goal_tracker',
+  'tax_optimizer',
+  'rebalance',
+  'alert_scan',
+  'cash_flow',
+  'custom',
+]
 
-const SYSTEM = `
-You are KB Wealth AI — institutional-grade Indian mutual fund portfolio strategist.
+function num(value: unknown): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
 
-Rules:
-- Be concise, high-signal, actionable.
-- Use exact fund names and ₹ values.
-- Avoid generic investing advice.
-- Focus on portfolio optimization, SIP efficiency, risk, tax, allocation, exits.
-- Prefer bullets over paragraphs.
-- Maximize insight per token.
-- Avoid repeating obvious context.
-`
+function pct(part: number, whole: number): number {
+  return whole > 0 ? (part / whole) * 100 : 0
+}
+
+function fmtDate(value: unknown): string | undefined {
+  if (!value) return undefined
+  const date = new Date(String(value))
+  return Number.isNaN(date.getTime()) ? String(value) : date.toISOString().split('T')[0]
+}
+
+function first<T>(row: Record<string, T>, keys: string[], fallback: T): T {
+  for (const key of keys) {
+    const value = row[key]
+    if (value !== undefined && value !== null && value !== '') return value
+  }
+  return fallback
+}
+
+async function getUsage(userId: string, today: string) {
+  const { data } = await supabase
+    .from('agent_usage')
+    .select('tokens_used')
+    .eq('user_id', userId)
+    .eq('date', today)
+    .maybeSingle()
+
+  return num(data?.tokens_used)
+}
+
+async function saveUsage(userId: string, today: string, tokensUsedToday: number) {
+  const payload = { user_id: userId, date: today, tokens_used: tokensUsedToday }
+  const { error } = await supabase
+    .from('agent_usage')
+    .upsert(payload, { onConflict: 'user_id,date' })
+
+  if (!error) return
+
+  const update = await supabase
+    .from('agent_usage')
+    .update({ tokens_used: tokensUsedToday })
+    .eq('user_id', userId)
+    .eq('date', today)
+
+  if (!update.error) return
+
+  await supabase.from('agent_usage').insert(payload)
+}
+
+async function buildUserContext(userId: string): Promise<NetWorthContext> {
+  const [
+    fundsRes,
+    txRes,
+    liabilitiesRes,
+    liquidityRes,
+    propertyRes,
+    cashRes,
+    goalsRes,
+    historyRes,
+    alertsRes,
+  ] = await Promise.all([
+    supabase.from('portfolio_funds').select('*').eq('user_id', userId),
+    supabase.from('transactions').select('*').eq('user_id', userId),
+    supabase.from('liabilities').select('*').eq('user_id', userId),
+    supabase.from('liquidity_assets').select('*').eq('user_id', userId),
+    supabase.from('property_assets').select('*').eq('user_id', userId),
+    supabase.from('cash_balances').select('*').eq('user_id', userId),
+    supabase.from('financial_goals').select('*').eq('user_id', userId).eq('status', 'active'),
+    supabase
+      .from('net_worth_history')
+      .select('*')
+      .eq('user_id', userId)
+      .order('snapshot_date', { ascending: true })
+      .limit(12),
+    supabase
+      .from('alerts_log')
+      .select('*')
+      .eq('user_id', userId)
+      .order('triggered_at', { ascending: false })
+      .limit(10),
+  ])
+
+  const funds = fundsRes.data ?? []
+  const transactions = txRes.data ?? []
+  const liabilities = liabilitiesRes.data ?? []
+  const liquidity = liquidityRes.data ?? []
+  const property = propertyRes.data ?? []
+  const cash = cashRes.data ?? []
+  const goals = goalsRes.data ?? []
+  const history = historyRes.data ?? []
+  const alerts = alertsRes.data ?? []
+
+  const mfFunds = funds.map((fund: any) => {
+    const fundTxs = transactions.filter((tx: any) => tx.fund_id === fund.id)
+    const invested = fundTxs.reduce((sum: number, tx: any) => {
+      return ['sip', 'lumpsum', 'buy', 'stp', 'switch_in'].includes(tx.type)
+        ? sum + num(tx.amount)
+        : sum
+    }, num(fund.invested))
+    const current = num(first(fund, ['current_value', 'current'], invested))
+    const gain = current - invested
+
+    return {
+      name: String(first(fund, ['fund_name', 'name'], 'Unnamed fund')),
+      category: String(first(fund, ['category', 'sub_category'], 'uncategorized')),
+      sip: num(first(fund, ['sip_amount', 'monthly_sip'], 0)),
+      invested,
+      current,
+      nav: num(first(fund, ['current_nav', 'nav'], 0)),
+      gain,
+      gainPct: pct(gain, invested),
+    }
+  })
+
+  const mfCorpus = mfFunds.reduce((sum, fund) => sum + fund.current, 0)
+  const mfInvested = mfFunds.reduce((sum, fund) => sum + fund.invested, 0)
+  const mfGain = mfCorpus - mfInvested
+  const propertyTotal = property.reduce((sum: number, row: any) => {
+    return sum + num(first(row, ['current_value', 'current', 'value'], 0))
+  }, 0)
+  const propertyPurchase = property.reduce((sum: number, row: any) => {
+    return sum + num(first(row, ['purchase_value', 'purchase_price', 'purchase'], 0))
+  }, 0)
+  const cashTotal = cash.reduce((sum: number, row: any) => {
+    return sum + num(first(row, ['balance', 'current_balance', 'value'], 0))
+  }, 0)
+  const liquidityManual = liquidity.reduce((sum: number, row: any) => {
+    return sum + num(first(row, ['current_value', 'value', 'balance'], 0))
+  }, 0)
+  const liabilityTotal = liabilities.reduce((sum: number, row: any) => {
+    return sum + num(first(row, ['outstanding', 'outstanding_amount', 'balance'], 0))
+  }, 0)
+  const totalAssets = mfCorpus + liquidityManual + propertyTotal + cashTotal
+  const netWorth = totalAssets - liabilityTotal
+
+  return {
+    user: { name: 'Investor', role: 'Worth IQ user' },
+    netWorth,
+    totalAssets,
+    liquidity: {
+      total: liquidityManual + mfCorpus,
+      mfCorpus,
+      manualInvested: liquidity.reduce((sum: number, row: any) => {
+        return sum + num(first(row, ['invested', 'amount_invested', 'principal'], 0))
+      }, 0),
+      manualGain: liquidityManual,
+      breakdown: liquidity.map((row: any) => ({
+        name: String(first(row, ['name', 'asset_name'], 'Liquidity asset')),
+        cat: String(first(row, ['category', 'type'], 'liquidity')),
+        value: num(first(row, ['current_value', 'value', 'balance'], 0)),
+        invested: num(first(row, ['invested', 'amount_invested', 'principal'], 0)),
+      })),
+    },
+    property: {
+      total: propertyTotal,
+      purchaseTotal: propertyPurchase,
+      appreciation: propertyTotal - propertyPurchase,
+      breakdown: property.map((row: any) => ({
+        name: String(first(row, ['name', 'property_name'], 'Property')),
+        cat: String(first(row, ['category', 'type'], 'property')),
+        current: num(first(row, ['current_value', 'current', 'value'], 0)),
+        purchase: num(first(row, ['purchase_value', 'purchase_price', 'purchase'], 0)),
+        year: num(first(row, ['purchase_year', 'year'], 0)) || undefined,
+      })),
+    },
+    cash: {
+      total: cashTotal,
+      breakdown: cash.map((row: any) => ({
+        name: String(first(row, ['name', 'account_name'], 'Cash account')),
+        cat: String(first(row, ['category', 'type'], 'cash')),
+        balance: num(first(row, ['balance', 'current_balance', 'value'], 0)),
+      })),
+    },
+    liabilities: {
+      total: liabilityTotal,
+      monthlyEMI: liabilities.reduce((sum: number, row: any) => {
+        return sum + num(first(row, ['emi', 'monthly_emi'], 0))
+      }, 0),
+      avgRate: liabilities.length
+        ? liabilities.reduce((sum: number, row: any) => sum + num(first(row, ['rate', 'interest_rate'], 0)), 0) / liabilities.length
+        : 0,
+      breakdown: liabilities.map((row: any) => ({
+        name: String(first(row, ['name', 'loan_name'], 'Liability')),
+        cat: String(first(row, ['category', 'type'], 'loan')),
+        outstanding: num(first(row, ['outstanding', 'outstanding_amount', 'balance'], 0)),
+        emi: num(first(row, ['emi', 'monthly_emi'], 0)),
+        rate: num(first(row, ['rate', 'interest_rate'], 0)),
+        endDate: fmtDate(first(row, ['end_date', 'maturity_date'], '')),
+      })),
+    },
+    mf: {
+      corpus: mfCorpus,
+      invested: mfInvested,
+      gain: mfGain,
+      gainPct: pct(mfGain, mfInvested),
+      xirr: 0,
+      monthlySIP: mfFunds.reduce((sum, fund) => sum + fund.sip, 0),
+      activeFunds: funds.filter((fund: any) => fund.is_active !== false).length,
+      funds: mfFunds,
+    },
+    goals: goals.map((row: any) => {
+      const target = num(first(row, ['target_amount', 'target'], 0))
+      const current = num(first(row, ['current_amount', 'current'], 0))
+      return {
+        name: String(first(row, ['name', 'goal_name'], 'Goal')),
+        target,
+        current,
+        progress: pct(current, target),
+        targetDate: fmtDate(first(row, ['target_date', 'deadline'], '')),
+      }
+    }),
+    projections: {
+      mf3mBase: mfCorpus * Math.pow(1 + 0.13, 3 / 12),
+      mf1yBase: (mfCorpus + mfFunds.reduce((sum, fund) => sum + fund.sip, 0) * 12) * 1.13,
+      nw1yBase: netWorth * 1.08,
+    },
+    nwHistory: history.map((row: any) => ({
+      month: String(first(row, ['snapshot_date', 'month', 'created_at'], '')),
+      nw: num(first(row, ['net_worth', 'nw', 'value'], 0)),
+    })),
+    recentAlerts: alerts.map((row: any) => String(first(row, ['message', 'alert'], ''))).filter(Boolean),
+  }
+}
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
-    const { type, customPrompt } = body || {}
+    const { type, customPrompt, userId } = await request.json()
 
-    let result = ''
+    if (!userId || typeof userId !== 'string') {
+      return NextResponse.json({ error: 'Missing userId.' }, { status: 400 })
+    }
 
-    // ─── Custom Prompt ─────────────────────────────────────────────────────
-    if (customPrompt) {
-      const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 700,
-        system: SYSTEM,
-        messages: [
-          {
-            role: 'user',
-            content: customPrompt,
-          },
-        ],
-      })
+    const agentType: AgentType = AGENT_TYPES.includes(type) ? type : 'custom'
+    const today = new Date().toISOString().split('T')[0]
+    const used = await getUsage(userId, today)
+    const context = buildContext(await buildUserContext(userId))
+    const { prompt, maxTokens } = buildPrompt(agentType, context, customPrompt)
+    const estimatedTokens = estimateTotalTokens(maxTokens)
 
-      result =
-        response.content[0]?.type === 'text'
-          ? response.content[0].text
-          : ''
-
-    // ─── Built-in Portfolio Intelligence ──────────────────────────────────
-    } else if (type) {
-      const context = await buildPortfolioContext()
-
-      switch (type) {
-        case 'weekly':
-          result = await runWeeklyBrief(context)
-          break
-
-        case 'projection':
-          result = await runProjectionUpdate(context)
-          break
-
-        case 'alert':
-          result = await runAlertCheck(context)
-          break
-
-        case 'advice':
-          result = await runAdvice(context)
-          break
-
-        default:
-          result = await runWeeklyBrief(context)
-      }
-
-    } else {
+    if (used + estimatedTokens > DAILY_TOKEN_LIMIT) {
       return NextResponse.json(
-        { error: 'Provide type or customPrompt' },
-        { status: 400 }
+        {
+          error: 'Daily AI limit reached.',
+          usage: {
+            tokensUsedToday: used,
+            remaining: Math.max(0, DAILY_TOKEN_LIMIT - used),
+            tokenLimit: DAILY_TOKEN_LIMIT,
+          },
+        },
+        { status: 429 },
       )
     }
 
-    // ─── Save AI Response to alerts_log ───────────────────────────────────
-    try {
-      await supabase
-        .from('alerts_log')
-        .insert({
-          alert_type: type || 'custom_ai',
-          fund_name: null,
-          message: result.substring(0, 500),
-          triggered_at: new Date().toISOString(),
-          is_read: false,
-        })
-    } catch (e) {
-      console.error('[agent] alerts_log insert failed:', e)
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        { error: 'ANTHROPIC_API_KEY is not configured.' },
+        { status: 500 },
+      )
     }
 
-    return NextResponse.json({
-      success: true,
-      result,
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const message = await anthropic.messages.create({
+      model: process.env.ANTHROPIC_MODEL ?? 'claude-3-5-haiku-latest',
+      max_tokens: maxTokens,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
     })
 
-  } catch (error: any) {
-    console.error('[agent] fatal:', error)
+    const result = message.content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+      .trim()
 
-    return NextResponse.json(
-      {
-        error: error?.message || 'Agent failed',
+    const actualTokens = message.usage.input_tokens + message.usage.output_tokens
+    const tokensUsedToday = used + actualTokens
+    await saveUsage(userId, today, tokensUsedToday)
+
+    await supabase.from('alerts_log').insert({
+      user_id: userId,
+      alert_type: agentType,
+      message: result.slice(0, 1000),
+      is_read: false,
+    })
+
+    return NextResponse.json({
+      result,
+      usage: {
+        tokensUsedToday,
+        remaining: Math.max(0, DAILY_TOKEN_LIMIT - tokensUsedToday),
+        tokenLimit: DAILY_TOKEN_LIMIT,
       },
-      { status: 500 }
+    })
+  } catch (error: any) {
+    console.error('agent route error:', error)
+    return NextResponse.json(
+      { error: error?.message ?? 'AI advisor failed.' },
+      { status: 500 },
     )
   }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BUILD CONTEXT
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function buildPortfolioContext(): Promise<string> {
-
-  // ─── Latest NAVs ────────────────────────────────────────────────────────
-  const { data: navs } = await supabase
-    .from('nav_history')
-    .select('isin, nav, nav_date')
-    .in('isin', MY_FUNDS.map(f => f.isin))
-    .order('nav_date', { ascending: false })
-
-  // ─── Portfolio Summary ──────────────────────────────────────────────────
-  const { data: portfolio } = await supabase
-    .from('portfolio_summary')
-    .select('*')
-    .single()
-
-  // ─── Recent Alerts ──────────────────────────────────────────────────────
-  const { data: alerts } = await supabase
-    .from('alerts_log')
-    .select('alert_type, fund_name, message, triggered_at')
-    .order('triggered_at', { ascending: false })
-    .limit(5)
-
-  // ─── Latest NAV Per ISIN ────────────────────────────────────────────────
-  const navMap: Record<string, { nav: number; date: string }> = {}
-
-  for (const row of navs || []) {
-    if (!navMap[row.isin]) {
-      navMap[row.isin] = {
-        nav: Number(row.nav),
-        date: row.nav_date,
-      }
-    }
-  }
-
-  // ─── Compact Fund Summary ───────────────────────────────────────────────
-  const compactFunds = MY_FUNDS.map(f => ({
-    n: f.name,
-    c: f.category,
-    sip: f.sip,
-    nav: navMap[f.isin]?.nav || 0,
-  }))
-
-  // ─── Compact Alerts ─────────────────────────────────────────────────────
-  const compactAlerts =
-    alerts?.map(a =>
-      `${a.alert_type}: ${a.message}`
-    ).join('\n') || 'No alerts'
-
-  return `
-Date: ${new Date().toDateString()}
-
-Portfolio:
-Value=${formatINR(portfolio?.current_value || 0)}
-Invested=${formatINR(portfolio?.invested_amount || 0)}
-Returns=${formatINR(portfolio?.absolute_return || 0)}
-XIRR=${Number(portfolio?.xirr || 0).toFixed(2)}%
-SIP=${formatINR(TOTAL_SIP)}/month
-
-Funds:
-${JSON.stringify(compactFunds)}
-
-Alerts:
-${compactAlerts}
-
-Goals:
-1Cr Apr-2026
-1.7Cr Apr-2030
-8Cr+ Long Term
-`
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WEEKLY BRIEF
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function runWeeklyBrief(context: string): Promise<string> {
-
-  const prompt = `
-${context}
-
-Generate concise WhatsApp-style portfolio update.
-
-Format:
-📊 Portfolio Score /100
-📈 Best performer
-📉 Weakest area
-⚠ Key risk
-💡 Best action this week
-🎯 Goal progress
-💰 SIP summary
-
-Requirements:
-- Exact fund names
-- Actionable only
-- No generic advice
-- Max 180 words
-`
-
-  const res = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 500,
-    system: SYSTEM,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  })
-
-  return res.content[0]?.type === 'text'
-    ? res.content[0].text
-    : ''
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PROJECTION ENGINE
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function runProjectionUpdate(context: string): Promise<string> {
-
-  const { data: portfolio } = await supabase
-    .from('portfolio_summary')
-    .select('current_value')
-    .single()
-
-  const currentValue = Number(portfolio?.current_value || 0)
-
-  const projections = {
-    '3M Bear': formatINR(calcProjection(currentValue, TOTAL_SIP, 3, 10)),
-    '3M Base': formatINR(calcProjection(currentValue, TOTAL_SIP, 3, 13)),
-    '3M Bull': formatINR(calcProjection(currentValue, TOTAL_SIP, 3, 16)),
-
-    '6M Base': formatINR(calcProjection(currentValue, TOTAL_SIP, 6, 13)),
-
-    '1Y Base': formatINR(calcProjection(currentValue, TOTAL_SIP, 12, 13)),
-  }
-
-  const prompt = `
-${context}
-
-Projection Scenarios:
-${JSON.stringify(projections)}
-
-Output:
-- most probable outcome
-- outperforming funds
-- underperforming funds
-- one allocation action
-
-Max 120 words.
-`
-
-  const res = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 450,
-    system: SYSTEM,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  })
-
-  return res.content[0]?.type === 'text'
-    ? res.content[0].text
-    : ''
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ALERT ENGINE
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function runAlertCheck(context: string): Promise<string> {
-
-  const prompt = `
-${context}
-
-Analyze portfolio risks and opportunities.
-
-Output:
-🔴 Critical
-🟡 Watchlist
-🟢 Opportunity
-
-Focus:
-- valuation excess
-- concentration risk
-- SIP inefficiency
-- direct vs regular leakage
-- sector overexposure
-- deployment timing
-- macro risks
-
-Max 120 words.
-`
-
-  const res = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 450,
-    system: SYSTEM,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  })
-
-  return res.content[0]?.type === 'text'
-    ? res.content[0].text
-    : ''
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ACTION ENGINE
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function runAdvice(context: string): Promise<string> {
-
-  const prompt = `
-${context}
-
-Give 3 high-conviction actions for next 30 days.
-
-Requirements:
-- exact fund names
-- exact ₹ allocation
-- one tax optimization
-- one rebalance
-- one SIP/STP optimization
-
-No generic advice.
-Max 150 words.
-`
-
-  const res = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 550,
-    system: SYSTEM,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-  })
-
-  return res.content[0]?.type === 'text'
-    ? res.content[0].text
-    : ''
 }

@@ -677,7 +677,8 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
       case 'lumpsum':      return <LumpsumTab funds={funds} transactions={transactions.filter(t => t.type === 'lumpsum')} />
       case 'transactions': return <TransactionsTab transactions={filteredTx} txFilter={txFilter} setTxFilter={setTxFilter} search={search} setSearch={setSearch} />
       case 'projections':  return <ProjectionsTab projData={projData} projPeriod={projPeriod} setProjP={setProjP} breakdown={breakdown} milestones={milestones} totalCurrent={totalCurrent} totalSIP={totalSIP} />
-      case 'agent':        return <AgentTab agentOut={agentOut} agentBusy={agentBusy} runAgent={runAgent} alerts={alerts} />
+      //case 'agent'    :        return <AgentTab agentOut={agentOut} agentBusy={agentBusy} runAgent={runAgent} alerts={alerts} />
+      case 'agent'      : return <AgentTab alerts={alerts} />
       default:             return null
     }
   }

@@ -4,6 +4,7 @@
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { PieChart, Pie, Cell, Tooltip, AreaChart, Area, XAxis, YAxis, ResponsiveContainer } from "recharts"
 import { supabase } from "@/lib/supabase"
+import { AgentTab } from '@/components/AgentTab'
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 const fmtINR = n => {
@@ -279,7 +280,7 @@ function AuthScreen() {
             {mode === 'signup' && (
               <div>
                 <label style={LBL}>Full Name *</label>
-                <input value={fullName} onChange={e=>setFullName(e.target.value)} onKeyDown={handleKey} placeholder="Kunal Bhatia" style={{ ...INP, marginTop:6 }} />
+                <input value={fullName} onChange={e=>setFullName(e.target.value)} onKeyDown={handleKey} placeholder="Your Name" style={{ ...INP, marginTop:6 }} />
               </div>
             )}
             <div>
@@ -587,6 +588,14 @@ notes: item.notes || null,
           {mod==='networth'    && <NetWorthPage    data={data} totals={totals} />}
           {mod==='goals'       && <GoalsPage       data={data} totals={totals} isViewer={isViewer} onAdd={()=>setModal({type:'add',module:'goals',item:{}})}       onEdit={item=>setModal({type:'edit',module:'goals',item})}       onDelete={id=>deleteItem('goals',id)} />}
           {mod==='mf'          && <MFPage          data={data} isViewer={isViewer} onRefresh={loadData} />}
+         {mod === 'advisor' && (
+  <div className="fade-up">
+    <h2 style={{ fontFamily:"'Syne',sans-serif", fontSize:20, fontWeight:700, color:'#0B1E4F', marginBottom:20 }}>
+      🤖 AI Wealth Advisor
+    </h2>
+    <AgentTab alerts={data.alerts} />
+  </div>
+)}
           {mod==='settings'    && <SettingsPage    auth={auth} />}
         </div>
       </div>
@@ -618,6 +627,7 @@ function Sidebar({ mod, setMod, auth, onLogout, alertCount }) {
     { id:'cash',        label:'Cash Balance',    icon:'💵' },
     { id:'networth',    label:'Net Worth',       icon:'📉' },
     { id:'goals',       label:'Goals',           icon:'🎯' },
+    { id: 'advisor', label: 'AI Advisor', icon: '🤖' },
     { id:'settings',    label:'Settings',        icon:'⚙️' },
   ]
   return (
@@ -686,6 +696,7 @@ function BottomNav({ mod, setMod, alertCount, onLogout }) {
     { id:'mf',          icon:'📈', label:'MF'      },
     { id:'networth',    icon:'📉', label:'Net Worth'},
     { id:'goals',       icon:'🎯', label:'Goals'   },
+    { id:'advisor',     icon:'🤖', label:'Advisor'   }
   ]
   return (
     <nav className="bottom-nav">
@@ -1397,6 +1408,7 @@ function GoalsPage({ data, totals, onAdd, onEdit, onDelete, isViewer }) {
     </div>
   )
 }
+
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
 function SettingsPage({ auth }) {
