@@ -14,6 +14,7 @@ type Tab        = 'dashboard' | 'sip' | 'lumpsum' | 'projections' | 'agent' | 't
 type ProjPeriod = '3m' | '6m' | '1y' | '5y'
 type AgentType  = 'weekly' | 'projection' | 'alert' | 'advice'
 type ModalType  = 'add-sip' | 'add-lumpsum' | 'edit-fund' | 'buy' | 'sell' | 'delete' | null
+type FundSearchMode = 'sip' | 'lumpsum'
 
 interface Fund {
   id: string; fund_name: string; isin: string; amc: string
@@ -303,7 +304,7 @@ export default function MFPage() {
   const [isinConfirmed, setIsinConfirmed] = useState(false)
   const [navPreview, setNavPreview]       = useState<{ nav: number; date: string } | null>(null)
   const fundSearchTimer                   = useRef<any>(null)
-  const [lumpsumForm, setLumpsumForm] = useState({ fund_name: '', amount: '', nav: '', date: '', notes: '' })
+  const [lumpsumForm, setLumpsumForm] = useState({ fund_name: '', isin: '', amc: '', amount: '', nav: '', date: '', notes: '', confirmed_nav: 0 })
   const [buyForm,  setBuyForm]  = useState({ amount: '', nav: '', date: new Date().toISOString().split('T')[0], notes: '' })
   const [sellForm, setSellForm] = useState({ units:  '', nav: '', date: new Date().toISOString().split('T')[0], notes: '' })
   const [editForm, setEditForm] = useState<Partial<Fund>>({})
@@ -486,46 +487,71 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
     if (q.length < 2) { setFundResults([]); return }
     setFundSearching(true)
     try {
-      const res  = await fetch(`[api.mfapi.in](https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)})`)
+      const res  = await fetch(`/api/mf-search?q=${encodeURIComponent(q)}`)
+      if (!res.ok) throw new Error('Fund search failed')
       const data = await res.json()
       setFundResults((data || []).slice(0, 12))
-    } catch { setFundResults([]) }
-    setFundSearching(false)
+    } catch {
+      setFundResults([])
+    } finally {
+      setFundSearching(false)
+    }
   }, [])
 
-  const onFundSearchChange = (val: string) => {
+  const onFundSearchChange = (val: string, mode: FundSearchMode = 'sip') => {
     setFundSearch(val)
     setIsinConfirmed(false)
     setNavPreview(null)
-    setSipForm(f => ({ ...f, fund_name: val, isin: '', confirmed_nav: 0 }))
+    if (mode === 'sip') {
+      setSipForm(f => ({ ...f, fund_name: val, isin: '', confirmed_nav: 0 }))
+    } else {
+      setLumpsumForm(f => ({ ...f, fund_name: val, isin: '', confirmed_nav: 0, nav: '' }))
+    }
     clearTimeout(fundSearchTimer.current)
     fundSearchTimer.current = setTimeout(() => searchFunds(val), 300)
   }
 
-  const onFundSelect = async (result: any) => {
+  const onFundSelect = async (result: any, mode: FundSearchMode = 'sip') => {
     const isin     = result.isinGrowth || result.isinDivReinvestment || ''
     const fundName = result.schemeName || ''
     const amc      = fundName.split(' ')[0] || ''
     setFundSearch(fundName)
     setFundResults([])
-    setSipForm(f => ({ ...f, fund_name: fundName, isin, amc, confirmed_nav: 0 }))
+    if (mode === 'sip') {
+      setSipForm(f => ({ ...f, fund_name: fundName, isin, amc, confirmed_nav: 0 }))
+    } else {
+      setLumpsumForm(f => ({ ...f, fund_name: fundName, isin, amc, confirmed_nav: 0 }))
+    }
     if (result.schemeCode) {
       setFundSearching(true)
       try {
-        const res  = await fetch(`[api.mfapi.in](https://api.mfapi.in/mf/${result.schemeCode})`)
+        const res  = await fetch(`/api/mf-search?schemeCode=${encodeURIComponent(result.schemeCode)}`)
+        if (!res.ok) throw new Error('NAV lookup failed')
         const data = await res.json()
         const nav  = Number(data?.data?.[0]?.nav || 0)
         const date = data?.data?.[0]?.date || ''
         setNavPreview({ nav, date })
-        setSipForm(f => ({ ...f, confirmed_nav: nav }))
-      } catch { setNavPreview(null) }
-      setFundSearching(false)
+        if (mode === 'sip') {
+          setSipForm(f => ({ ...f, confirmed_nav: nav }))
+        } else {
+          setLumpsumForm(f => ({ ...f, confirmed_nav: nav, nav: nav ? String(nav) : f.nav }))
+        }
+      } catch {
+        setNavPreview(null)
+      } finally {
+        setFundSearching(false)
+      }
     }
     setIsinConfirmed(true)
   }
 
   const resetSipForm = () => {
     setSipForm({ fund_name: '', isin: '', amc: '', category: 'core', sub_category: '', sip_amount: '', sip_date: '1', start_date: '', confirmed_nav: 0 })
+    setFundSearch(''); setFundResults([]); setIsinConfirmed(false); setNavPreview(null)
+  }
+
+  const resetLumpsumForm = () => {
+    setLumpsumForm({ fund_name: '', isin: '', amc: '', amount: '', nav: '', date: '', notes: '', confirmed_nav: 0 })
     setFundSearch(''); setFundResults([]); setIsinConfirmed(false); setNavPreview(null)
   }
 
@@ -551,8 +577,36 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
 
   const addLumpsum = async () => {
     if (!lumpsumForm.fund_name || !lumpsumForm.amount) { showToast('Fund and amount required', false); return }
-    const fund = funds.find(f => f.fund_name === lumpsumForm.fund_name)
-    if (!fund) { showToast('Select a fund from the list', false); return }
+    let fund = funds.find(f => f.isin === lumpsumForm.isin || f.fund_name === lumpsumForm.fund_name)
+
+    if (!fund) {
+      if (!isinConfirmed || !lumpsumForm.isin) { showToast('Please select a fund from the search results', false); return }
+
+      const fundPayload: Record<string, any> = {
+        fund_name: lumpsumForm.fund_name,
+        isin: lumpsumForm.isin,
+        amc: lumpsumForm.amc,
+        category: 'core',
+        sub_category: '',
+        sip_amount: 0,
+        sip_date: 1,
+        start_date: null,
+        current_nav: lumpsumForm.confirmed_nav || Number(lumpsumForm.nav) || null,
+        target_pct: 0,
+        is_active: true,
+      }
+      if (userId) fundPayload.user_id = userId
+
+      const { data: insertedFund, error: fundError } = await supabase
+        .from('portfolio_funds')
+        .insert(fundPayload)
+        .select('id, fund_name, isin')
+        .single()
+
+      if (fundError) { showToast('Error: ' + fundError.message, false); return }
+      fund = insertedFund as Fund
+    }
+
     const amount = Number(lumpsumForm.amount)
     const nav    = Number(lumpsumForm.nav) || 0
     const payload: Record<string, any> = {
@@ -566,7 +620,7 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
     const { error } = await supabase.from('transactions').insert(payload)
     if (error) { showToast('Error: ' + error.message, false); return }
     showToast('Lumpsum investment added')
-    setLumpsumForm({ fund_name: '', amount: '', nav: '', date: '', notes: '' })
+    resetLumpsumForm()
     setModal(null); loadAll()
   }
 
@@ -716,7 +770,7 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
             <span className="mf-header-subtitle" style={{ color: 'white', fontSize: 13 }}>Add SIP</span>
           </button>
           <button
-            onClick={() => setModal('add-lumpsum')}
+            onClick={() => { resetLumpsumForm(); setModal('add-lumpsum') }}
             style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#F5F3FF', color: C.mf.main, border: `1px solid ${C.mf.light}`, borderRadius: 10, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
           >
             <span>💰</span>
@@ -856,14 +910,35 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
 
             {/* Add Lumpsum */}
             {modal === 'add-lumpsum' && (
-              <ModalShell title="Add Lumpsum Investment" onClose={() => setModal(null)}>
+              <ModalShell title="Add Lumpsum Investment" onClose={() => { setModal(null); resetLumpsumForm() }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div>
-                    <label style={LBL}>Fund *</label>
-                    <select value={lumpsumForm.fund_name} onChange={e => setLumpsumForm(f => ({ ...f, fund_name: e.target.value }))} style={INP}>
+                  <div style={{ position: 'relative' }}>
+                    <label style={LBL}>Search Fund *</label>
+                    <input
+                      value={fundSearch}
+                      onChange={e => onFundSearchChange(e.target.value, 'lumpsum')}
+                      placeholder="e.g. Nippon India Small Cap"
+                      style={{ ...INP, borderColor: isinConfirmed ? '#059669' : fundSearch && !isinConfirmed ? '#F59E0B' : C.border }}
+                    />
+                    {false && <>
                       <option value="">Select fund…</option>
-                      {funds.map(f => <option key={f.id} value={f.fund_name}>{f.fund_name}</option>)}
-                    </select>
+                    {fundSearching && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 12, color: C.text3 }}>â³</div>}
+                    {isinConfirmed && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 14, color: '#059669' }}>âœ“</div>}
+
+                    </>}
+                    {fundSearching && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 12, color: C.text3 }}>...</div>}
+                    {isinConfirmed && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 14, color: '#059669' }}>OK</div>}
+
+                    {fundResults.length > 0 && (
+                      <div className="fund-search-drop" style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,.12)', zIndex: 100, maxHeight: 260, overflowY: 'auto' }}>
+                        {fundResults.map((r, i) => (
+                          <button key={i} onClick={() => onFundSelect(r, 'lumpsum')} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, color: C.text2, borderBottom: i < fundResults.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+                            <div style={{ fontWeight: 500 }}>{r.schemeName}</div>
+                            <div style={{ fontSize: 11, color: C.text4, marginTop: 2 }}>{r.isinGrowth || r.isinDivReinvestment}</div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="mf-grid-2" style={{ marginBottom: 0 }}>
                     <div>
@@ -884,7 +959,7 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
                     <input value={lumpsumForm.notes} onChange={e => setLumpsumForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" style={INP} />
                   </div>
                   <div style={{ display: 'flex', gap: 10, paddingTop: 4 }}>
-                    <button onClick={() => setModal(null)} style={{ flex: 1, padding: '11px', border: `1.5px solid ${C.border}`, borderRadius: 10, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.text2 }}>Cancel</button>
+                    <button onClick={() => { setModal(null); resetLumpsumForm() }} style={{ flex: 1, padding: '11px', border: `1.5px solid ${C.border}`, borderRadius: 10, background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.text2 }}>Cancel</button>
                     <button onClick={addLumpsum} style={{ flex: 2, padding: '11px', background: C.mf.main, color: 'white', border: 'none', borderRadius: 10, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Add Investment</button>
                   </div>
                 </div>
