@@ -29,13 +29,13 @@ export async function GET(request: Request) {
       return NextResponse.json([])
     }
 
-    try {
-      const data = await fetchJson(`${MFAPI_SEARCH_URL}?q=${encodeURIComponent(query)}`)
-      return NextResponse.json(Array.isArray(data) ? data.slice(0, 20) : [])
-    } catch {
-      const results = await searchAmfiNavFile(query)
-      return NextResponse.json(results)
+    const amfiResults = await searchAmfiNavFile(query)
+    if (amfiResults.length > 0) {
+      return NextResponse.json(amfiResults)
     }
+
+    const data = await fetchJson(`${MFAPI_SEARCH_URL}?q=${encodeURIComponent(query)}`)
+    return NextResponse.json(Array.isArray(data) ? data.slice(0, 20) : [])
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Fund search failed'
     return NextResponse.json({ error: message }, { status: 502 })

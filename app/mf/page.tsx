@@ -920,12 +920,6 @@ ${activeFunds.map(f => `• ${f.fund_name} | ₹${f.sip_amount.toLocaleString('e
                       placeholder="e.g. Nippon India Small Cap"
                       style={{ ...INP, borderColor: isinConfirmed ? '#059669' : fundSearch && !isinConfirmed ? '#F59E0B' : C.border }}
                     />
-                    {false && <>
-                      <option value="">Select fund…</option>
-                    {fundSearching && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 12, color: C.text3 }}>â³</div>}
-                    {isinConfirmed && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 14, color: '#059669' }}>âœ“</div>}
-
-                    </>}
                     {fundSearching && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 12, color: C.text3 }}>...</div>}
                     {isinConfirmed && <div style={{ position: 'absolute', right: 10, top: 32, fontSize: 14, color: '#059669' }}>OK</div>}
 
